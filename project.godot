@@ -1,0 +1,58 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[animation]
+
+compatibility/default_parent_skeleton_in_mesh_instance_3d=true
+
+[application]
+
+config/name="Rain"
+config/description="通用 AI 小说推演框架 —— 导入完结小说，AI 驱动动态叙事"
+run/main_scene="res://scenes/main.tscn"
+config/features=PackedStringArray("4.6")
+config/icon="res://icon.svg"
+
+[autoload]
+
+WorldState="*res://src/autoload/world_state.gd"
+EventBus="*res://src/autoload/event_bus.gd"
+ProviderRegistry="*res://src/autoload/provider_registry.gd"
+MananaPipeline="*res://src/llm/manana/manana_pipeline.gd"
+CanonLoader="*res://src/autoload/canon_loader.gd"
+NovelScanner="*res://src/autoload/novel_scanner.gd"
+
+[debug]
+
+file_logging/enable_file_logging=true
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/godot_bridge_mcp/plugin.cfg")
+
+[gdscript]
+
+gdscript/warnings/enable_all_warnings=false
+gdscript/warnings/inferred_declaration=0
+
+[mcp_bridge]
+
+port=4099
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"

@@ -1,0 +1,99 @@
+[gd_scene format=3 uid="uid://5k5pod7c0gu7"]
+
+[ext_resource type="Script" uid="uid://c0qybsp3vvr78" path="res://src/ui/main.gd" id="1_script"]
+
+[node name="Main" type="Control" unique_id=1174349487]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_script")
+
+[node name="Margin" type="MarginContainer" parent="." unique_id=561100180]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 8
+
+[node name="MainVBox" type="VBoxContainer" parent="Margin" unique_id=1343923118]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="StatusBar" type="HBoxContainer" parent="Margin/MainVBox" unique_id=69188443]
+layout_mode = 2
+
+[node name="TimeLabel" type="Label" parent="Margin/MainVBox/StatusBar" unique_id=1681973238]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.5, 0.5, 0.5, 1)
+text = "第0月·第0日·清晨"
+
+[node name="Spacer1" type="Control" parent="Margin/MainVBox/StatusBar" unique_id=1433565314]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="ThreadLabel" type="Label" parent="Margin/MainVBox/StatusBar" unique_id=1691052833]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.4, 0.7, 0.4, 1)
+horizontal_alignment = 2
+
+[node name="Spacer2" type="Control" parent="Margin/MainVBox/StatusBar" unique_id=304533031]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="LocationLabel" type="Label" parent="Margin/MainVBox/StatusBar" unique_id=1308643060]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.6, 0.5, 0.3, 1)
+text = "未知地点"
+
+[node name="StatusSep" type="HSeparator" parent="Margin/MainVBox" unique_id=1573943007]
+layout_mode = 2
+
+[node name="NarrativeScroll" type="ScrollContainer" parent="Margin/MainVBox" unique_id=1283542618]
+layout_mode = 2
+size_flags_vertical = 3
+follow_focus = true
+
+[node name="NarrativeArea" type="RichTextLabel" parent="Margin/MainVBox/NarrativeScroll" unique_id=179252139]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_colors/default_color = Color(0.85, 0.85, 0.85, 1)
+bbcode_enabled = true
+text = "Rain · AI 小说推演框架
+---------------------------
+正在加载世界...
+"
+
+[node name="InputSep" type="HSeparator" parent="Margin/MainVBox" unique_id=301774062]
+layout_mode = 2
+
+[node name="InputRow" type="HBoxContainer" parent="Margin/MainVBox" unique_id=1618006663]
+layout_mode = 2
+
+[node name="PromptLabel" type="Label" parent="Margin/MainVBox/InputRow" unique_id=1232052599]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.3, 0.9, 0.3, 1)
+text = "> "
+
+[node name="InputField" type="LineEdit" parent="Margin/MainVBox/InputRow" unique_id=71985788]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.85, 0.85, 0.85, 1)
+placeholder_text = "输入你的行动..."
+
+[node name="ShortcutBar" type="HBoxContainer" parent="Margin/MainVBox" unique_id=676597798]
+layout_mode = 2
+
+[node name="ScF1" type="Label" parent="Margin/MainVBox/ShortcutBar" unique_id=480100859]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.4, 0.4, 0.4, 1)
+theme_override_font_sizes/font_size = 12
+text = "F1:角色 F2:地点 F3:日志 F4:关系 F5:存档 F6:设置 F7:规则 F8:续写"

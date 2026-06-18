@@ -1,0 +1,10 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "godot-bridge": {
+      "type": "local",
+      "command": ["python", "E:/Demo/mycelium-void/addons/godot_mcp/server.py"],
+      "enabled": true
+    }
+  }
+}
