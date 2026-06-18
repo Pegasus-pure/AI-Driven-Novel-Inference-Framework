@@ -4,6 +4,7 @@ Python port of the Rain project's core LLM narrative pipeline, originally writte
 
 Source of Inspiration:
 https://toonflow.net/#/
+|
 https://github.com/HBAI-Ltd/Toonflow-app
 
 ## Architecture
