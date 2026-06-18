@@ -21,8 +21,6 @@
 
 Players can import any completed novel, and the system automatically extracts the world-setting, characters, and plot structure via LLM. The player then experiences the story as a "transmigrated background character" — revisiting classic canon scenes while also diverging from the main plot and exploring unknown side stories through choices.
 
-The project is inspired by miHoYo's *Varsapura* (City of Rain), targeting two audiences: "Revisitors" and "Discoverers".
-
 ### Core Experience
 
 - **Import & Play**: Drop in a completed novel text, AI automatically parses world-setting, characters, and plot
