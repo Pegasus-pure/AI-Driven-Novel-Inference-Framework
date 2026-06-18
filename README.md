@@ -2,7 +2,9 @@
 
 Python port of the Rain project's core LLM narrative pipeline, originally written in GDScript for Godot 4.x.
 
-Source of Inspiration: https://toonflow.net/#/
+Source of Inspiration:
+https://toonflow.net/#/
+https://github.com/HBAI-Ltd/Toonflow-app
 
 ## Architecture
 
