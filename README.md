@@ -207,4 +207,4 @@ If prompt files are not found, agents fall back to their built-in default prompt
 
 ## License
 
-Part of the Rain Project — internal use.
+Part of the Round Project — internal use.
