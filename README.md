@@ -56,12 +56,4 @@ flowchart TD
     CA & SE --> TM
     TM -.-> RO
     SC -.-> MO
-```
 
-## Three-Tier Model Assignment
-
-| Tier | Agents | Default Model |
-|------|--------|--------------|
-| **strong** | Director, Composer, Oracle | qwen3.5:9b |
-| **medium** | Motivation, Dialogue, Auditor, Thread, Synthesizer | qwen3.5:9b |
-| **light** | Action, Extractor, Scorer, MicroOracle | qwen3.5:9b |
