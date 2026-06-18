@@ -560,19 +560,6 @@ WorkBuddy is responsible for:
 
 ---
 
-## License
-
-TBD
-
----
-
-## Contact
-
-- **GitHub**: (TBD)
-- **Issues**: Bug reports and feature suggestions welcome
-
----
-
 <div align="center">
 
 **Round — Making the Novel World Within Reach**
