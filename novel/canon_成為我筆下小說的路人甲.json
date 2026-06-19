@@ -1,0 +1,203 @@
+{
+  "meta": {
+	"title": "成為我筆下小說的路人甲",
+	"author": "未知",
+	"genre": ["现代奇幻", "穿书", "英雄", "军校", "元叙事"],
+	"extraction_confidence": 0.7,
+	"extraction_timestamp": "2026-06-16T13:55:00Z"
+  },
+  "characters": [
+	{
+	  "id": "char_001",
+	  "name": "金春冬",
+	  "aliases": ["春冬", "作者", "龙套"],
+	  "role": "主角",
+	  "personality": {
+		"traits": ["自知之明", "谨慎", "观察力强", "焦虑"],
+		"speech_style": "内心独白丰富，口头表达简短，带自嘲色彩",
+		"core_motivation": "作为路人甲在自己写的小说中生存下去，找到回家的方法",
+		"core_fear": "被小说剧情吞噬，无法回到现实",
+		"moral_alignment": "中立善良"
+	  },
+	  "appearance": "外貌不明（镜中为?符号），身材普通，军校学员制服",
+	  "abilities": ["小说全知（知道主线剧情）", "超强感知力（听见远处对话）", "基础军校训练"],
+	  "relationships": [
+		{"target": "char_002", "type": "自己笔下的主角", "intensity": 0.3},
+		{"target": "char_003", "type": "自己笔下的反派", "intensity": -0.2}
+	  ],
+	  "starting_location": "loc_001"
+	},
+	{
+	  "id": "char_002",
+	  "name": "金修豪",
+	  "aliases": ["剑圣", "第一名"],
+	  "role": "主角(小说中)",
+	  "personality": {
+		"traits": ["天才", "努力家", "正直", "神秘"],
+		"speech_style": "沉稳、有分量，不轻易开口",
+		"core_motivation": "成为最强英雄，守护世界",
+		"core_fear": "隐藏的秘密被揭露",
+		"moral_alignment": "守序善良"
+	  },
+	  "appearance": "17岁少年，军校毕业典礼第一名，俊秀面容",
+	  "abilities": ["剑圣才能", "受世界庇佑的剑术", "隐藏能力"],
+	  "relationships": [
+		{"target": "char_003", "type": "宿敌", "intensity": -0.6}
+	  ],
+	  "starting_location": "loc_001"
+	},
+	{
+	  "id": "char_003",
+	  "name": "申宗鶴",
+	  "aliases": ["财阀继承人", "第二名"],
+	  "role": "反派",
+	  "personality": {
+		"traits": ["傲慢", "精英主义", "嫉妒心强", "野心勃勃"],
+		"speech_style": "居高临下，优雅中带刺，刻意展现血统优越",
+		"core_motivation": "超越金修豪，证明自己才是最强的",
+		"core_fear": "被人超越，失去优越地位",
+		"moral_alignment": "混乱邪恶"
+	  },
+	  "appearance": "不亚于金修豪的美貌，贵族气质，17岁",
+	  "abilities": ["财阀资源", "精英教育", "战斗天赋"],
+	  "relationships": [
+		{"target": "char_002", "type": "宿敌/自卑驱使的敌意", "intensity": -0.8}
+	  ],
+	  "starting_location": "loc_001"
+	},
+	{
+	  "id": "char_004",
+	  "name": "尹承雅",
+	  "aliases": ["女主角", "公会精英"],
+	  "role": "配角",
+	  "personality": {
+		"traits": ["自信", "精明", "果敢", "有魅力"],
+		"speech_style": "直率犀利，善于谈判，偶尔带调侃",
+		"core_motivation": "为所属公会展现实力",
+		"core_fear": "公会地位下滑",
+		"moral_alignment": "中立善良"
+	  },
+	  "appearance": "长得像春冬初恋的容貌，职业装束",
+	  "abilities": ["公会管理", "谈判手腕", "战斗能力"],
+	  "relationships": [
+		{"target": "char_002", "type": "暧昧/助手", "intensity": 0.6}
+	  ],
+	  "starting_location": "loc_001"
+	},
+	{
+	  "id": "char_005",
+	  "name": "金浩葉",
+	  "aliases": ["小猪", "情报通"],
+	  "role": "配角",
+	  "personality": {
+		"traits": ["憨厚", "友善", "情报才能"],
+		"speech_style": "随和亲切，偶尔碎碎念",
+		"core_motivation": "帮助朋友，发挥情报专长",
+		"core_fear": "在战斗中拖后腿",
+		"moral_alignment": "善良"
+	  },
+	  "appearance": "微胖，像小猪的可爱长相",
+	  "abilities": ["情报分析", "数据处理"],
+	  "relationships": [
+		{"target": "char_001", "type": "好友", "intensity": 0.5}
+	  ],
+	  "starting_location": "loc_001"
+	}
+  ],
+  "world_rules": {
+	"era": "现代韩国+超能力世界",
+	"magic_system": {
+	  "name": "才能系统",
+	  "rules": ["少数人拥有特殊'才能'（如剑圣）", "才能通过军校训练觉醒和强化", "英雄协会和公会管理能力者"],
+	  "limitations": "才能为天赋决定，无法后天获取，能力需训练才能精进"
+	},
+	"society": {
+	  "structure": "英雄协会管理能力者，公会竞争人才，军校准军事化培养",
+	  "factions": ["英雄协会", "各类公会（精髓海峡等）", "特务军校", "财阀势力",
+	   "政府机构"],
+	  "technology_level": "现代科技水平+超能力"
+	},
+	"species": [
+	  {"name": "人类", "traits": ["少数拥有才能"], "population_share": 0.99},
+	  {"name": "怪物/魔人", "traits": ["威胁人类安全"], "population_share": 0.01}
+	]
+  },
+  "locations": [
+	{
+	  "id": "loc_001",
+	  "name": "特务军校首尔分部",
+	  "type": "建筑",
+	  "parent": "",
+	  "description": "英雄协会旗下的精英培训机构，培养对抗怪物和魔人的能力者。礼堂如神殿般宽阔，可容纳数千人。",
+	  "atmosphere": "庄严、竞争激烈",
+	  "sub_locations": [
+		{"id": "loc_001a", "name": "大礼堂", "type": "建筑"},
+		{"id": "loc_001b", "name": "训练场", "type": "建筑"},
+		{"id": "loc_001c", "name": "学员宿舍", "type": "建筑"}
+	  ]
+	},
+	{
+	  "id": "loc_002",
+	  "name": "春冬的公寓",
+	  "type": "建筑",
+	  "parent": "",
+	  "description": "金春冬穿越后居住的普通公寓，没有父母，独居。平凡得如他本人。",
+	  "atmosphere": "孤独、平静"
+	},
+	{
+	  "id": "loc_003",
+	  "name": "英雄协会总部",
+	  "type": "建筑",
+	  "parent": "",
+	  "description": "管理全国能力者和公会的最高机构，权力巨大。",
+	  "atmosphere": "权威、森严"
+	},
+	{
+	  "id": "loc_004",
+	  "name": "首尔",
+	  "type": "城市",
+	  "parent": "",
+	  "description": "韩国首都，能力者和怪物事件的多发地，现代都市与超自然交织。",
+	  "atmosphere": "繁华、暗流涌动"
+	}
+  ],
+  "timeline": [
+	{
+	  "id": "event_001",
+	  "title": "毕业典礼",
+	  "description": "特务军校首尔分部毕业典礼上，金修豪获得第一名，申宗鶴获得第二名，两人初次交锋。春冬作为路人甲在台下观望。",
+	  "involved_characters": ["char_001", "char_002", "char_003", "char_004"],
+	  "involved_locations": ["loc_001"],
+	  "significance": "故事起点"
+	},
+	{
+	  "id": "event_002",
+	  "title": "春冬意识到自己是路人甲",
+	  "description": "穿越两周后，春冬确认自己成为了自己小说中不存在的龙套角色，外貌变成?符号。",
+	  "involved_characters": ["char_001"],
+	  "involved_locations": ["loc_002"],
+	  "significance": "揭示主线冲突"
+	},
+	{
+	  "id": "event_003",
+	  "title": "魔方事件",
+	  "description": "某人试图重制春冬的小说，可能与穿越现象有关。",
+	  "involved_characters": ["char_001"],
+	  "involved_locations": ["loc_002"],
+	  "significance": "关键转折"
+	},
+	{
+	  "id": "event_004",
+	  "title": "金修豪与申宗鶴的对立",
+	  "description": "两大天才从军校时代起的宿命对决逐渐升级，申宗鶴因自卑转为恶人。",
+	  "involved_characters": ["char_002", "char_003"],
+	  "involved_locations": ["loc_001", "loc_004"],
+	  "significance": "高潮对决"
+	}
+  ],
+  "writing_style": {
+	"tone": "元叙事讽刺+热血超能力战斗，韩式网文风格",
+	"pace": "中等节奏，内心独白与战斗场景交替",
+	"dialogue_style": "自然口语，角色辨识度高，主角大量内心独白"
+  }
+}

@@ -1,0 +1,251 @@
+{
+  "meta": {
+	"title": "福尔摩斯探案集·回忆录",
+	"author": "柯南·道尔",
+	"genre": ["推理", "悬疑", "古典文学"],
+	"total_chapters": 11,
+	"extraction_confidence": 0.95,
+	"extraction_timestamp": "2026-06-16T11:30:00Z"
+  },
+  "characters": [
+	{
+	  "id": "char_001",
+	  "name": "夏洛克·福尔摩斯",
+	  "aliases": ["福尔摩斯", "大侦探"],
+	  "role": "主角",
+	  "personality": {
+		"traits": ["观察力极强", "逻辑缜密", "孤僻", "自负", "偶尔使用可卡因", "对无聊无法忍受"],
+		"speech_style": "快速、精准、略带傲慢，喜欢在揭示结论前卖关子",
+		"core_motivation": "破解谜题，战胜犯罪，证明推理艺术的优越性",
+		"core_fear": "无聊——没有案件可破会让他陷入抑郁",
+		"moral_alignment": "守序善良"
+	  },
+	  "appearance": "瘦高个，鹰钩鼻，轮廓分明，常穿大衣戴猎鹿帽",
+	  "abilities": ["演绎推理", "化装术", "拳击", "小提琴演奏", "化学实验"],
+	  "relationships": [
+		{"target": "char_002", "type": "挚友/搭档", "intensity": 0.9},
+		{"target": "char_005", "type": "宿敌", "intensity": -0.95}
+	  ],
+	  "starting_location": "loc_001"
+	},
+	{
+	  "id": "char_002",
+	  "name": "华生",
+	  "aliases": ["华生医生", "约翰·华生"],
+	  "role": "主角",
+	  "personality": {
+		"traits": ["忠诚", "勇敢", "务实", "善良", "偶尔迟钝"],
+		"speech_style": "直白、朴实，作为叙述者娓娓道来",
+		"core_motivation": "协助福尔摩斯，记录他们的冒险",
+		"core_fear": "无法保护福尔摩斯或家人",
+		"moral_alignment": "善良"
+	  },
+	  "appearance": "退伍军医，健壮，留须",
+	  "abilities": ["医术", "军旅经验", "手枪射击"],
+	  "relationships": [
+		{"target": "char_001", "type": "挚友/搭档", "intensity": 0.9},
+		{"target": "char_004", "type": "妻子", "intensity": 0.95}
+	  ],
+	  "starting_location": "loc_001"
+	},
+	{
+	  "id": "char_003",
+	  "name": "迈克罗夫特·福尔摩斯",
+	  "aliases": ["迈克罗夫特"],
+	  "role": "配角",
+	  "personality": {
+		"traits": ["推理能力超越弟弟", "极度懒惰", "肥胖", "深居简出", "在政府查账"],
+		"speech_style": "比福尔摩斯更简洁，但不卖关子",
+		"core_motivation": "维持秩序，但不愿耗费体力",
+		"core_fear": "社交和体力活动",
+		"moral_alignment": "守序中立"
+	  },
+	  "appearance": "比福尔摩斯更高大肥胖，面部轮廓相似，淡灰色眼睛",
+	  "abilities": ["超级推理（比福尔摩斯更强）", "政府查账专家"],
+	  "relationships": [
+		{"target": "char_001", "type": "兄弟", "intensity": 0.8}
+	  ],
+	  "starting_location": "loc_003"
+	},
+	{
+	  "id": "char_004",
+	  "name": "玛丽·摩斯坦",
+	  "aliases": ["华生太太"],
+	  "role": "配角",
+	  "personality": {
+		"traits": ["温柔", "聪慧", "支持丈夫"],
+		"speech_style": "端庄得体",
+		"core_motivation": "支持华生的事业",
+		"core_fear": "失去华生",
+		"moral_alignment": "善良"
+	  },
+	  "appearance": "金发，年轻貌美",
+	  "abilities": [],
+	  "relationships": [
+		{"target": "char_002", "type": "妻子", "intensity": 0.95}
+	  ],
+	  "starting_location": "loc_002"
+	},
+	{
+	  "id": "char_005",
+	  "name": "莫里亚蒂教授",
+	  "aliases": ["詹姆斯·莫里亚蒂", "犯罪界的拿破仑"],
+	  "role": "反派",
+	  "personality": {
+		"traits": ["天才数学家", "犯罪组织首脑", "冷酷", "深不可测"],
+		"speech_style": "彬彬有礼但隐含威胁",
+		"core_motivation": "控制整个伦敦的地下犯罪网络",
+		"core_fear": "被福尔摩斯揭露",
+		"moral_alignment": "邪恶"
+	  },
+	  "appearance": "瘦高，面容如学者，深陷的眼睛",
+	  "abilities": ["数学天才", "犯罪组织指挥", "战略策划"],
+	  "relationships": [
+		{"target": "char_001", "type": "宿敌", "intensity": -0.95}
+	  ],
+	  "starting_location": "loc_003"
+	},
+	{
+	  "id": "char_006",
+	  "name": "雷斯垂德探长",
+	  "aliases": ["雷斯垂德", "探长"],
+	  "role": "配角",
+	  "personality": {
+		"traits": ["勤勉", "正直", "能力有限但尊重福尔摩斯"],
+		"speech_style": "官方口吻，对福尔摩斯既佩服又无奈",
+		"core_motivation": "破案立功",
+		"core_fear": "案子无法侦破导致声誉受损",
+		"moral_alignment": "守序善良"
+	  },
+	  "appearance": "瘦小精干的警探",
+	  "abilities": ["刑侦", "伦敦地形熟记"],
+	  "relationships": [
+		{"target": "char_001", "type": "合作伙伴", "intensity": 0.6}
+	  ],
+	  "starting_location": "loc_004"
+	}
+  ],
+  "world_rules": {
+	"era": "维多利亚时代·伦敦（1880-1895）",
+	"magic_system": {
+	  "name": "现实世界",
+	  "rules": [
+		"不存在超自然力量，一切靠理性和科学",
+        "福尔摩斯的演绎法本质是极致的观察+归纳"
+	  ],
+	  "limitations": "无魔法，无超自然"
+	},
+	"society": {
+	  "structure": "大英帝国鼎盛期，阶级分明，苏格兰场是主要执法机构",
+	  "factions": ["苏格兰场", "莫里亚蒂犯罪网络", "上流社会", "底层罪犯"],
+	  "technology_level": "蒸汽时代末期，电报、火车、马车为主要交通/通讯手段"
+	},
+	"species": [
+	  {"name": "人类", "traits": ["唯一的智慧物种"], "population_share": 1.0}
+	]
+  },
+  "locations": [
+	{
+	  "id": "loc_001",
+	  "name": "贝克街221B",
+	  "type": "建筑",
+	  "parent": "loc_003",
+	  "description": "福尔摩斯与华生合租的公寓，壁炉旁是推理的主战场。房间堆满化学药品、案卷和犯罪遗物，墙上弹痕累累",
+	  "atmosphere": "杂乱但温暖，推理与烟草的气息"
+	},
+	{
+	  "id": "loc_002",
+	  "name": "华生诊所",
+	  "type": "建筑",
+	  "parent": "loc_003",
+	  "description": "华生婚后在帕丁顿区开设的私人诊所，他在这里行医并等待福尔摩斯的来访",
+	  "atmosphere": "安静、专业"
+	},
+	{
+	  "id": "loc_003",
+	  "name": "伦敦",
+	  "type": "城市",
+	  "parent": "",
+	  "description": "维多利亚时代的大英帝国首都，浓雾笼罩的街道上马车辚辚。上流社会的客厅与东区的贫民窟并存，是整个故事的舞台",
+	  "atmosphere": "阴郁而繁忙，暗藏罪恶"
+	},
+	{
+	  "id": "loc_004",
+	  "name": "苏格兰场",
+	  "type": "建筑",
+	  "parent": "loc_003",
+	  "description": "伦敦警察厅总部，雷斯垂德探长等官方警探在此办公，常因疑难案件求助福尔摩斯",
+	  "atmosphere": "官僚而忙碌"
+	},
+	{
+	  "id": "loc_005",
+	  "name": "第欧根尼俱乐部",
+	  "type": "建筑",
+	  "parent": "loc_003",
+	  "description": "伦敦最古怪的俱乐部，禁止会员交谈。迈克罗夫特·福尔摩斯每日在此消磨时光，是伦敦最孤僻者的避风港",
+	  "atmosphere": "绝对安静，与世隔绝"
+	}
+  ],
+  "timeline": [
+	{
+	  "id":     {
+      "id": "event_001",
+      "title": "银斑驹失踪案",
+      "description": "一匹冠军赛马深夜失踪，驯马师被杀。福尔摩斯与华生前往达特穆尔调查，揭示了赛马赌博背后的阴谋",
+      "involved_characters": ["char_001", "char_002"],
+      "involved_locations": ["loc_001"],
+      "significance": "故事起点",
+      "conflicts": [
+        {
+          "id": "conflict_001",
+          "type": "mystery",
+          "description": "赛马失踪与驯马师被杀之谜",
+          "involved_characters": ["char_001", "char_002"],
+          "involved_locations": ["loc_004"],
+          "intensity": 0.7,
+          "variants": ["赛马不是失踪而是被调换", "驯马师并非被杀而是假死", "背后另有更大的赛马操纵集团"]
+        },
+        {
+          "id": "conflict_002",
+          "type": "moral_dilemma",
+          "description": "追查真相可能伤害无辜者的道德困境",
+          "involved_characters": ["char_001", "char_002"],
+          "intensity": 0.5,
+          "variants": ["真相揭露后无辜者将身败名裂", "凶手有令人同情的动机"]
+        }
+      ]
+    },
+	{
+	  "id": "event_002",
+	  "title": "莫里亚蒂的阴影浮现",
+	  "description": "福尔摩斯揭露犯罪教授莫里亚蒂的存在——一个控制着伦敦半数犯罪的数学天才",
+	  "involved_characters": ["char_001", "char_005"],
+	  "involved_locations": ["loc_003", "loc_001"],
+	  "significance": "揭示主线冲突"
+	},
+	{
+	  "id":     {
+      "id": "event_003",
+      "title": "最后对决——莱辛巴赫瀑布",
+      "description": "福尔摩斯与莫里亚蒂在瑞士莱辛巴赫瀑布决斗，双双坠崖。华生以为挚友已死",
+      "involved_characters": ["char_001", "char_002", "char_005"],
+      "involved_locations": [],
+      "significance": "高潮对决",
+      "conflicts": [
+        {
+          "id": "conflict_003",
+          "type": "character_conflict",
+          "description": "福尔摩斯与莫里亚蒂的终极对决",
+          "involved_characters": ["char_001", "char_005"],
+          "intensity": 0.95,
+          "variants": ["对决在莱辛巴赫瀑布展开", "对决转移到伦敦地下", "引入第三方势力介入"]
+        }
+      ]
+    }
+  ],
+  "writing_style": {
+	"tone": "悬疑而克制，推理节奏紧凑",
+	"pace": "中速推进，对话占比高，最后有推理独白",
+	"dialogue_style": "角色辨识度极高——福尔摩斯快而精准，华生朴实，客户紧张"
+  }
+}

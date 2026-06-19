@@ -1,0 +1,35 @@
+{
+  "id": "char_003",
+  "name": "申宗鶴",
+  "aliases": [
+    "财阀继承人",
+    "第二名"
+  ],
+  "role": "反派",
+  "personality": {
+    "traits": [
+      "傲慢",
+      "精英主义",
+      "嫉妒心强",
+      "野心勃勃"
+    ],
+    "speech_style": "居高临下，优雅中带刺，刻意展现血统优越",
+    "core_motivation": "超越金修豪，证明自己才是最强的",
+    "core_fear": "被人超越，失去优越地位",
+    "moral_alignment": "混乱邪恶"
+  },
+  "appearance": "不亚于金修豪的美貌，贵族气质，17岁",
+  "abilities": [
+    "财阀资源",
+    "精英教育",
+    "战斗天赋"
+  ],
+  "relationships": [
+    {
+      "target": "char_002",
+      "type": "宿敌/自卑驱使的敌意",
+      "intensity": -0.8
+    }
+  ],
+  "starting_location": "loc_001"
+}

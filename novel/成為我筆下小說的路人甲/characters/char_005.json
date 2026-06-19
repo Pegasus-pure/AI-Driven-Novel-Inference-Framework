@@ -1,0 +1,33 @@
+{
+  "id": "char_005",
+  "name": "金浩葉",
+  "aliases": [
+    "小猪",
+    "情报通"
+  ],
+  "role": "配角",
+  "personality": {
+    "traits": [
+      "憨厚",
+      "友善",
+      "情报才能"
+    ],
+    "speech_style": "随和亲切，偶尔碎碎念",
+    "core_motivation": "帮助朋友，发挥情报专长",
+    "core_fear": "在战斗中拖后腿",
+    "moral_alignment": "善良"
+  },
+  "appearance": "微胖，像小猪的可爱长相",
+  "abilities": [
+    "情报分析",
+    "数据处理"
+  ],
+  "relationships": [
+    {
+      "target": "char_001",
+      "type": "好友",
+      "intensity": 0.5
+    }
+  ],
+  "starting_location": "loc_001"
+}

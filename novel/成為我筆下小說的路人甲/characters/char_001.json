@@ -1,0 +1,41 @@
+{
+  "id": "char_001",
+  "name": "金春冬",
+  "aliases": [
+    "春冬",
+    "作者",
+    "龙套"
+  ],
+  "role": "主角",
+  "personality": {
+    "traits": [
+      "自知之明",
+      "谨慎",
+      "观察力强",
+      "焦虑"
+    ],
+    "speech_style": "内心独白丰富，口头表达简短，带自嘲色彩",
+    "core_motivation": "作为路人甲在自己写的小说中生存下去，找到回家的方法",
+    "core_fear": "被小说剧情吞噬，无法回到现实",
+    "moral_alignment": "中立善良"
+  },
+  "appearance": "外貌不明（镜中为?符号），身材普通，军校学员制服",
+  "abilities": [
+    "小说全知（知道主线剧情）",
+    "超强感知力（听见远处对话）",
+    "基础军校训练"
+  ],
+  "relationships": [
+    {
+      "target": "char_002",
+      "type": "自己笔下的主角",
+      "intensity": 0.3
+    },
+    {
+      "target": "char_003",
+      "type": "自己笔下的反派",
+      "intensity": -0.2
+    }
+  ],
+  "starting_location": "loc_001"
+}

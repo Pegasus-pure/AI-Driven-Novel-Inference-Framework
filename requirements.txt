@@ -1,0 +1,21 @@
+# AI-Driven-Novel-Inference-Framework — Python 依赖
+# Python 3.10+ 必需
+# 安装: pip install -r requirements.txt
+
+# ── Web 框架 ──
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+
+# ── 异步 HTTP (MaNA管线依赖) ──
+aiohttp>=3.9.0
+
+# ── 配置解析 ──
+pyyaml>=6.0
+
+# ── 桌面打包（可选，运行 python launcher.py 时必需）──
+# pywebview>=5.0
+# pyinstaller>=6.0
+
+# ── EPUB 支持（可选，小说导入 .epub 时必需）──
+# ebooklib>=0.18
+# beautifulsoup4>=4.12

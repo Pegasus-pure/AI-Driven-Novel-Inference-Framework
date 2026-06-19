@@ -1,0 +1,35 @@
+{
+  "id": "char_004",
+  "name": "尹承雅",
+  "aliases": [
+    "女主角",
+    "公会精英"
+  ],
+  "role": "配角",
+  "personality": {
+    "traits": [
+      "自信",
+      "精明",
+      "果敢",
+      "有魅力"
+    ],
+    "speech_style": "直率犀利，善于谈判，偶尔带调侃",
+    "core_motivation": "为所属公会展现实力",
+    "core_fear": "公会地位下滑",
+    "moral_alignment": "中立善良"
+  },
+  "appearance": "长得像春冬初恋的容貌，职业装束",
+  "abilities": [
+    "公会管理",
+    "谈判手腕",
+    "战斗能力"
+  ],
+  "relationships": [
+    {
+      "target": "char_002",
+      "type": "暧昧/助手",
+      "intensity": 0.6
+    }
+  ],
+  "starting_location": "loc_001"
+}

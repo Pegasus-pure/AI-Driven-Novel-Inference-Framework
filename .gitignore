@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Runtime
+saves/
+dist/
+build/
+
+# Config backup
+config.yaml.bak
+
+# IDE
+.vscode/
+.idea/
+*.swp

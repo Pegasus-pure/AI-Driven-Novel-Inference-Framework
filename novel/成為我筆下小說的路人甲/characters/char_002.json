@@ -1,0 +1,35 @@
+{
+  "id": "char_002",
+  "name": "金修豪",
+  "aliases": [
+    "剑圣",
+    "第一名"
+  ],
+  "role": "主角(小说中)",
+  "personality": {
+    "traits": [
+      "天才",
+      "努力家",
+      "正直",
+      "神秘"
+    ],
+    "speech_style": "沉稳、有分量，不轻易开口",
+    "core_motivation": "成为最强英雄，守护世界",
+    "core_fear": "隐藏的秘密被揭露",
+    "moral_alignment": "守序善良"
+  },
+  "appearance": "17岁少年，军校毕业典礼第一名，俊秀面容",
+  "abilities": [
+    "剑圣才能",
+    "受世界庇佑的剑术",
+    "隐藏能力"
+  ],
+  "relationships": [
+    {
+      "target": "char_003",
+      "type": "宿敌",
+      "intensity": -0.6
+    }
+  ],
+  "starting_location": "loc_001"
+}
