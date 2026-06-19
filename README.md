@@ -206,6 +206,7 @@ python -m uvicorn server.main:app --host 127.0.0.1 --port 8000
 2. 添加角色
 3. 添加地点
 4. 点击「开始冒险」进入交互式叙事
+
 ---
 
 ## 项目结构
