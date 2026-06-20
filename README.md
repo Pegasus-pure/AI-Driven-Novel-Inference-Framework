@@ -4,7 +4,7 @@
 
 ---
 
-## 架构总览
+## 架构总览（下载文件后可查看架构）
 
 https://github.com/Pegasus-pure/AI-Driven-Novel-Inference-Framework/blob/main(frame-work)/Agent-Edit.html
 
