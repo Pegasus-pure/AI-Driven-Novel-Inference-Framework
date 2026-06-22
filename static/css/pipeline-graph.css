@@ -1,0 +1,318 @@
+/* ============================================
+   Pipeline Graph — 管线图独立样式
+   ============================================ */
+
+/* ── 管线视图容器 ────────────────────────── */
+.pipeline-view {
+  display: flex;
+  flex-direction: column;
+  /* 使用视口比例高度，而非 100% 占满面板，为下方功能开关和按钮留出空间 */
+  height: clamp(320px, 42vh, 520px);
+  min-height: 320px;
+  max-height: 520px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.pipeline-graph-container {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-deep);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+/* ── 滚动容器 ─────────────────────────────── */
+.pipeline-graph__scroll {
+  width: 100%;
+  flex: 1;
+  overflow: auto;
+  cursor: grab;
+  position: relative;
+}
+.pipeline-graph__scroll:active {
+  cursor: grabbing;
+}
+.pipeline-graph__scroll::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.pipeline-graph__scroll::-webkit-scrollbar-track {
+  background: var(--bg-deep);
+}
+.pipeline-graph__scroll::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+/* ── 缩放包装器 ───────────────────────────── */
+.pg-zoom-wrapper {
+  position: relative;
+  width: fit-content;
+  height: fit-content;
+  min-width: 5000px;
+  min-height: 5000px;
+  transform-origin: 0 0;
+  /* 缩放由 JS 直接设置 transform，不加 transition 保证跟手 */
+}
+
+/* ── SVG 连线层（在节点下方）───────────── */
+.pipeline-graph__svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 5000px;
+  height: 5000px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── 节点容器（在连线上方）──────────────── */
+.pipeline-graph__nodes {
+  position: relative;
+  width: 5000px;
+  height: 5000px;
+  z-index: 1;
+}
+
+/* ── 工具栏 ───────────────────────────────── */
+.pipeline-graph__toolbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  z-index: 5;
+}
+
+.pipeline-graph__toolbar-btn {
+  padding: 4px 10px;
+  background: var(--bg-element);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.pipeline-graph__toolbar-btn:hover {
+  border-color: var(--accent-green, #3B6D11);
+  color: var(--text-body);
+}
+.pipeline-graph__toolbar-btn--active {
+  background: var(--bg-accent);
+  border-color: var(--accent-green, #3B6D11);
+  color: var(--accent-green, #7ee787);
+}
+.pipeline-graph__toolbar-btn--active:hover {
+  background: var(--bg-accent);
+}
+
+.pg-toolbar-sep {
+  color: var(--border);
+  font-size: 10px;
+}
+
+.pg-zoom-display {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  min-width: 36px;
+  text-align: center;
+}
+
+/* ── 节点盒子 ─────────────────────────────── */
+.pg-node {
+  position: absolute;
+  width: 140px;
+  height: 90px;
+  z-index: 2;
+  cursor: move;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  transition: box-shadow 0.15s;
+  user-select: none;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.pg-node:hover {
+  box-shadow: 0 0 0 1px rgba(126, 231, 135, 0.25);
+}
+
+.pg-node.dragging {
+  z-index: 20;
+  box-shadow: 0 0 0 2px var(--accent-green, #7ee787);
+}
+
+/* 禁用状态 */
+.pg-node--disabled {
+  opacity: 0.5;
+  border-style: dashed;
+}
+
+/* ── 节点内部结构 ────────────────────────── */
+.pg-node__icon {
+  padding: 6px 12px;
+  border-radius: 8px 8px 0 0;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.2px;
+  height: 32px;
+  box-sizing: border-box;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pg-node__body {
+  padding: 6px 12px 10px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  flex: 1;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.pg-node__label {
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--text-body);
+  margin-bottom: 2px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pg-node__desc {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-height: 1.4;
+}
+
+.pg-opt-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  font-size: 9px;
+  background: var(--bg-element);
+  color: var(--text-tertiary);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 400;
+}
+
+.pg-opt-badge--active {
+  background: rgba(63, 185, 80, 0.15);
+  color: #3fb950;
+}
+
+.pg-opt-badge--inactive {
+  background: rgba(110, 118, 129, 0.13);
+  color: #6e7681;
+}
+
+.pg-opt-badge--conditional {
+  background: rgba(88, 166, 255, 0.12);
+  color: #58a6ff;
+}
+
+/* ── 层级颜色变体 ────────────────────────── */
+.pg-node.tier-strong  { border-color: #2a1a1a; }
+.pg-node.tier-strong .pg-node__icon { background: #1c0f0f; color: #f85149; }
+
+.pg-node.tier-medium { border-color: #2a2410; }
+.pg-node.tier-medium .pg-node__icon { background: #1c1808; color: #d29922; }
+
+.pg-node.tier-light  { border-color: #0d2a17; }
+.pg-node.tier-light .pg-node__icon { background: #081a0e; color: #7ee787; }
+
+.pg-node.tier-python { border-color: #1a1f30; }
+.pg-node.tier-python .pg-node__icon { background: #0f1420; color: #58a6ff; }
+
+/* ── 连线样式 ─────────────────────────────── */
+.pg-wire--active {
+  filter: drop-shadow(0 0 1px rgba(88, 166, 255, 0.3));
+}
+
+/* ── 功能开关列表 ────────────────────────── */
+.pipeline-features-section {
+  margin-top: 16px;
+  padding: 0 16px 16px;
+  flex-shrink: 0;
+}
+
+.pipeline-tree-section__label {
+  font-size: 10px;
+  color: #484f58;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+  padding: 0 0 4px 0;
+  border-bottom: 1px solid #1c2333;
+}
+
+.pipeline-features-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pipeline-feature-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+.pipeline-feature-row:hover {
+  background: var(--bg-accent);
+}
+
+.pipeline-feature-row__toggle {
+  flex-shrink: 0;
+}
+
+.pipeline-feature-row__info {
+  flex: 1;
+  min-width: 0;
+}
+
+.pipeline-feature-row__label {
+  font-size: 12px;
+  color: var(--text-body);
+  font-weight: 500;
+}
+
+.pipeline-feature-row__desc {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  margin-top: 1px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pipeline-feature-row__actions {
+  flex-shrink: 0;
+  display: flex;
+  gap: 6px;
+}

@@ -140,7 +140,7 @@ func embed(text: String) -> PackedFloat64Array:
 	}
 	var body_json: String = JSON.stringify(body_dict)
 
-	var base_endpoint: String = str(_config.get("endpoint", "http://192.168.71.11:11434/api/chat"))
+	var base_endpoint: String = str(_config.get("endpoint", "http://localhost:11434/api/chat"))
 	var embed_url: String = base_endpoint.replace("/api/chat", EMBED_ENDPOINT)
 
 	var result: Dictionary = await _do_http_request(embed_url, body_json)

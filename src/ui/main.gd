@@ -1088,7 +1088,7 @@ func _on_provider_type_changed(prefix: String, idx: int) -> void:
 			"openai":
 				endpoint_le.text = "https://api.openai.com/v1/chat/completions"
 			_:
-				endpoint_le.text = "http://192.168.71.11:11434/api/chat"
+				endpoint_le.text = "http://localhost:11434/api/chat"
 
 	# 切换 API Key 可见性
 	_setup_api_key_visibility(prefix, prov_type)

@@ -13,6 +13,20 @@
 export_presets.cfg
 logs/
 
+# === Python 构建产物 ===
+__pycache__/
+*.pyc
+*.pyo
+dist/
+*.egg-info/
+
+# === 运行时数据（含日志、评测指标）===
+server/**/metrics/
+saves/
+
+# === 小说原文（受版权保护，不应上传 GitHub）===
+novel/
+
 # === 系统垃圾 ===
 Thumbs.db
 .DS_Store

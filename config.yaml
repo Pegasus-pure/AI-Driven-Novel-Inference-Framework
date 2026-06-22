@@ -1,0 +1,104 @@
+app:
+  title: Rain
+  host: 127.0.0.1
+  port: 8000
+providers:
+  导演层:
+    type: ollama
+    endpoint: http://localhost:11434
+    model: qwen3.5:9b
+    api_key: ''
+    temperature: 0.7
+    max_tokens: 4096
+    timeout: 180
+  演员层:
+    type: ollama
+    endpoint: http://localhost:11434
+    model: qwen3.5:9b
+    api_key: ''
+    temperature: 0.7
+    max_tokens: 2048
+    timeout: 120
+  动作层:
+    type: ollama
+    endpoint: http://localhost:11434
+    model: qwen3.5:9b
+    api_key: ''
+    temperature: 0.5
+    max_tokens: 1024
+    timeout: 60
+features:
+  refinement: true
+  best_of_3: true
+  multi_view: true
+  dynamic_tier: true
+  micro_oracle: true
+  semantic_selection: true
+  emergence_system: true
+  continuity_check: true
+  role_reflection: true
+  memory_system: true
+  prompt_optimization: true
+game:
+  oracle_interval: 5
+  auto_save_interval: 10
+  max_reconnect_attempts: 5
+emergence:
+  hit_threshold: 3
+  similarity_threshold: 0.75
+  feature_extraction: llm
+  max_pending_entities: 50
+continuity:
+  max_rewrite: 2
+  tier: 演员层
+reflection:
+  tier: 动作层
+  check_clothing: true
+  check_location: true
+  check_mood: true
+  check_relationship: true
+memory:
+  recency_weight: 0.4
+  relevance_weight: 0.3
+  importance_weight: 0.3
+  decay_lambda: 0.05
+  reflection_threshold: 30
+  top_k_director: 5
+  top_k_character: 3
+  max_entries_per_agent: 200
+  retrieve_recency_window: 100
+  retention_window: 50
+  low_importance_threshold: 4.0
+  compact_interval: 10
+desktop:
+  window_width: 1280
+  window_height: 800
+  resizable: true
+  fullscreen: false
+truncation:
+  thread_context: 3000
+  llm_extract: 15000
+  scene_context: 4000
+  narrative_history: 2000
+reward:
+  enabled: true
+  log_path: server/manana/metrics/reward_log.jsonl
+  weights:
+    auditor_score: 0.3
+    micro_oracle_health: 0.2
+    narrative_tension: 0.2
+    canon_adherence: 0.2
+    issue_penalty: 0.1
+prompt_optimization:
+  provider: 导演层
+  high_reward_threshold: 0.7
+  min_samples_for_optimization: 50
+  optimization_interval: 50
+composer:
+  best_of_n:
+    enabled: false
+    sample_count: 3
+    temperatures:
+    - 0.5
+    - 0.7
+    - 0.9

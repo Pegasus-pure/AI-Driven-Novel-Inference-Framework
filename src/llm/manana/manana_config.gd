@@ -191,7 +191,7 @@ func _create_default_v2_config() -> void:
 
 	# [provider_strong] — 最强模型，低 temperature，高 token 上限
 	_config_file.set_value("provider_strong", "type", "ollama")
-	_config_file.set_value("provider_strong", "endpoint", "http://192.168.71.11:11434/api/chat")
+	_config_file.set_value("provider_strong", "endpoint", "http://localhost:11434/api/chat")
 	_config_file.set_value("provider_strong", "api_key", "")
 	_config_file.set_value("provider_strong", "model", "qwen3.5:9b")
 	_config_file.set_value("provider_strong", "temperature", 0.5)
@@ -200,7 +200,7 @@ func _create_default_v2_config() -> void:
 
 	# [provider_medium] — 中等模型，默认 temperature，中等 token 上限
 	_config_file.set_value("provider_medium", "type", "ollama")
-	_config_file.set_value("provider_medium", "endpoint", "http://192.168.71.11:11434/api/chat")
+	_config_file.set_value("provider_medium", "endpoint", "http://localhost:11434/api/chat")
 	_config_file.set_value("provider_medium", "api_key", "")
 	_config_file.set_value("provider_medium", "model", "qwen3.5:9b")
 	_config_file.set_value("provider_medium", "temperature", 0.7)
@@ -209,7 +209,7 @@ func _create_default_v2_config() -> void:
 
 	# [provider_light] — 轻量模型，高 temperature（创意性），低 token 上限
 	_config_file.set_value("provider_light", "type", "ollama")
-	_config_file.set_value("provider_light", "endpoint", "http://192.168.71.11:11434/api/chat")
+	_config_file.set_value("provider_light", "endpoint", "http://localhost:11434/api/chat")
 	_config_file.set_value("provider_light", "api_key", "")
 	_config_file.set_value("provider_light", "model", "qwen3.5:9b")
 	_config_file.set_value("provider_light", "temperature", 0.8)

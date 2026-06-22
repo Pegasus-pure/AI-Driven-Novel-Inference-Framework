@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rain · 成为我笔下小说的路人甲</title>
+  <link rel="stylesheet" href="/static/css/main.css">
+  <link rel="stylesheet" href="/static/css/pipeline-graph.css">
+</head>
+<body>
+
+<!-- ==================== WELCOME OVERLAY ==================== -->
+<div class="welcome-overlay welcome-overlay--hidden" id="welcomeOverlay" style="display:none">
+  <div class="welcome-card">
+    <div class="welcome-card__title">⚡ Rain · 小说模拟器</div>
+    <p class="welcome-card__desc">导入一部完结小说，AI 会抽取世界观与角色，让你以穿越者身份沉浸体验故事。</p>
+
+    <!-- ===== 确认弹窗: 有 canon 时 ===== -->
+    <div id="confirmDialog" class="confirm-dialog" style="display:none">
+      <p class="confirm-dialog__title">📋 检测到已生成的世界观数据</p>
+      <div class="confirm-canon-list" id="confirmCanonList">
+        <!-- JS 动态填充 canon 列表项 -->
+      </div>
+      <div class="confirm-dialog__actions">
+        <button class="confirm-btn confirm-btn--keep" id="btnKeepCanon">✅ 保留已有，开始游戏</button>
+        <button class="confirm-btn confirm-btn--regenerate" id="btnRegenerateCanon">🔄 重新生成</button>
+      </div>
+      <div class="confirm-dialog__actions" style="margin-top:8px;">
+        <button class="confirm-btn skip-novel-btn" id="btnSkipNovel">⏭️ 直接进入（跳过）</button>
+      </div>
+    </div>
+
+    <!-- ===== 小说选择界面: 无 canon 时 ===== -->
+    <div id="novelSelector" style="display:none">
+      <div class="welcome-card__list" id="welcomeNovelList">
+        <!-- JS 动态填充 .txt 文件列表 -->
+      </div>
+      <div class="welcome-card__upload">
+        <label class="welcome-upload-btn" for="welcomeFileInput">📂 选择小说文件（支持 .txt / .epub）</label>
+        <input type="file" id="welcomeFileInput" accept=".txt,.epub" style="display:none">
+      </div>
+      <p class="welcome-card__hint">或将 .txt 文件放入 novel/ 目录后刷新页面</p>
+
+      <!-- 导入 Canon JSON 区域 -->
+      <button class="skip-novel-btn" id="btnSkipNovel2" style="margin-top:16px; width:100%;">⏭️ 直接进入（跳过）</button>
+
+      <div class="import-json-area" id="importJsonArea">
+        <div class="import-json-area__divider">
+          <span>或者</span>
+        </div>
+        <p class="import-json-area__desc">如果你已有生成好的世界观数据（canon JSON），可直接导入：</p>
+        <div class="import-json-area__actions">
+          <button class="import-json-btn" id="btnImportJson">📋 导入 Canon JSON 文件</button>
+          <input type="file" id="importJsonInput" accept=".json" style="display:none">
+          <a class="import-json-template" id="canonTemplateLink" href="javascript:void(0)">
+            📥 下载 Canon JSON 模板
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 初始加载态 (扫描中) ===== -->
+    <div id="initialScanning" class="initial-scanning">
+      <div class="loading-spinner loading-spinner--small"></div>
+      <p class="initial-scanning__text">正在扫描小说目录...</p>
+      <button class="rescan-btn" id="btnRescan" style="display:none; margin-top:12px;">🔄 重新扫描</button>
+    </div>
+
+    <!-- ===== 加载态遮罩: LLM 生成中 ===== -->
+    <div id="generationLoading" class="loading-overlay" style="display:none">
+      <div class="loading-card">
+        <div class="loading-spinner"></div>
+        <p class="loading-card__title">正在生成世界观数据...</p>
+        <p class="loading-card__status" id="generationStatusText">正在分析小说角色...</p>
+        <p class="loading-card__timer" id="generationTimer" style="display:none">⏳ 生成比预期更久，请耐心等待...</p>
+        <div class="loading-card__elapsed">
+          已用时 <span id="generationElapsed">0</span> 秒
+        </div>
+      </div>
+    </div>
+
+    <!-- 旧按钮保留兼容，默认隐藏 -->
+    <button class="welcome-continue-btn" id="btnContinueCanon" style="display:none">▶ 继续当前故事</button>
+  </div>
+</div>
+
+<!-- ==================== TITLE BAR ==================== -->
+<header class="title-bar">
+  <div class="title-bar__left">
+    <span class="title-bar__icon">⚡</span>
+    <span class="title-bar__project">Rain</span>
+    <span class="title-bar__sep">·</span>
+    <button class="title-bar__novel-btn" id="titleNovelBtn" title="点击选择或更换小说">
+      <span class="title-bar__novel" id="titleNovel">请选择小说</span>
+    </button>
+  </div>
+  <div class="title-bar__right">
+    <!-- 叙事模式标签 -->
+    <div class="title-bar__mode" id="narrativeModeTag" style="display:none">
+      <span class="mode-indicator" id="modeIndicator">探索</span>
+    </div>
+    <!-- 双极偏离度显示 -->
+    <div class="title-bar__deviation">
+      <span>世界偏离度</span>
+      <div class="deviation-bipolar" title="偏离度 -1.0~1.0，中心 0 为基准">
+        <div class="deviation-bipolar__track">
+          <div class="deviation-bipolar__center"></div>
+          <div class="deviation-bipolar__fill" id="deviationFill"></div>
+        </div>
+      </div>
+      <span class="deviation-value" id="deviationValue">+0.00</span>
+    </div>
+    <!-- 连接状态指示 -->
+    <span id="connectionStatus" class="title-bar__conn-status" title="WebSocket 连接状态">🟡</span>
+  </div>
+</header>
+
+<!-- ==================== PIPELINE STATUS BAR ==================== -->
+<div class="pipeline-bar" id="pipelineBar">
+  <div class="pipeline-bar__nodes" id="pipelineNodes">
+    <!-- 由 pipeline-status.js 动态生成 -->
+  </div>
+  <span class="pipeline-bar__label" id="pipelineLabel"></span>
+  <div class="pipeline-bar__progress">
+    <div class="pipeline-bar__progress-fill" id="pipelineProgress" style="width:0%"></div>
+  </div>
+</div>
+
+<!-- ==================== MAIN CONTENT ==================== -->
+<div class="main-content">
+
+  <!-- SIDEBAR -->
+  <!-- 顺序: F1 剧情 → F2 世界观 → F3 角色 → F4 地点 → F5 日志 → F6 存档 → F7 设置 -->
+  <nav class="sidebar" id="sidebar">
+    <button class="sidebar__btn sidebar__btn--active" data-panel="narrative" data-key="F1">
+      <span class="sidebar__btn-icon">📖</span>
+      <span>剧情</span>
+      <span class="sidebar__btn-shortcut">F1</span>
+    </button>
+    <button class="sidebar__btn" data-panel="world" data-key="F2">
+      <span class="sidebar__btn-icon">🌍</span>
+      <span>世界观</span>
+      <span class="sidebar__btn-shortcut">F2</span>
+    </button>
+    <button class="sidebar__btn" data-panel="characters" data-key="F3">
+      <span class="sidebar__btn-icon">👤</span>
+      <span>角色</span>
+      <span class="sidebar__btn-shortcut">F3</span>
+    </button>
+    <button class="sidebar__btn" data-panel="locations" data-key="F4">
+      <span class="sidebar__btn-icon">🗺️</span>
+      <span>地点</span>
+      <span class="sidebar__btn-shortcut">F4</span>
+    </button>
+    <button class="sidebar__btn" data-panel="log" data-key="F5">
+      <span class="sidebar__btn-icon">📜</span>
+      <span>日志</span>
+      <span class="sidebar__btn-shortcut">F5</span>
+    </button>
+    <button class="sidebar__btn" data-panel="save" data-key="F6">
+      <span class="sidebar__btn-icon">💾</span>
+      <span>存档</span>
+      <span class="sidebar__btn-shortcut">F6</span>
+    </button>
+    <button class="sidebar__btn" data-panel="settings" data-key="F7">
+      <span class="sidebar__btn-icon">⚙️</span>
+      <span>设置</span>
+      <span class="sidebar__btn-shortcut">F7</span>
+    </button>
+    <button class="sidebar__btn" data-panel="threads" data-key="F8">
+      <span class="sidebar__btn-icon">🧵</span>
+      <span>线索</span>
+      <span class="sidebar__btn-shortcut">F8</span>
+    </button>
+  </nav>
+
+  <!-- CENTER PANELS -->
+  <main class="center-panel" id="centerPanel">
+
+    <!-- Narrative Panel -->
+    <section class="panel panel--active" id="panel-narrative">
+      <div class="narrative-area" id="narrativeArea">
+        <!-- Content generated by JS -->
+      </div>
+      <!-- 选项区上方生成状态气泡区 -->
+      <div class="pipeline-bubbles" id="pipelineBubbles">
+        <!-- JS 动态生成气泡 -->
+      </div>
+      <!-- 选项区上方单行状态标签（气泡模式关闭时显示） -->
+      <div class="pipeline-status-label" id="pipelineStatusLabel" style="display:none">
+        <span class="pipeline-status-label__dot"></span>
+        <span class="pipeline-status-label__text"></span>
+      </div>
+      <div class="choice-panel" id="choicePanel">
+        <!-- 初始"开始冒险"按钮（canon_ready 后显示，点击后隐藏） -->
+        <button class="start-btn" id="startGameBtn" style="display:none">
+          <span class="start-btn__icon">▶</span>
+          <span class="start-btn__text">开始冒险</span>
+          <span class="start-btn__hint">我已准备好进入这个世界</span>
+        </button>
+        <button class="start-btn start-btn--abort" id="abortGameBtn" style="display:none">
+          <span class="start-btn__icon">⏹</span>
+          <span class="start-btn__text">中止生成</span>
+          <span class="start-btn__hint">停止当前管线</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- World Rules Panel (F2 世界观) -->
+    <section class="panel" id="panel-world">
+      <div class="world-panel" id="worldPanelContent">
+        <div class="world-panel-title">🌍 世界观</div>
+        <!-- Content generated by world-rules.js -->
+      </div>
+    </section>
+
+    <!-- Characters Panel -->
+    <section class="panel" id="panel-characters">
+      <div class="characters-panel" id="charactersPanelContent">
+        <div class="char-panel-title">📋 角色档案</div>
+        <!-- 角色列表区域 -->
+        <div id="charactersListContent">
+          <!-- Content generated by characters.js -->
+        </div>
+        <!-- 新增按钮 -->
+        <button class="add-btn" id="btnAddCharacter" title="新增角色">+</button>
+      </div>
+    </section>
+
+    <!-- Locations Panel -->
+    <section class="panel" id="panel-locations">
+      <div class="locations-panel" id="locationsPanelContent">
+        <div class="loc-title">🗺️ 已知地点</div>
+        <!-- Content generated by locations.js -->
+        <div id="locationsListContent">
+          <!-- Content generated by locations.js -->
+        </div>
+        <!-- 新增按钮 -->
+        <button class="add-btn" id="btnAddLocation" title="新增地点">+</button>
+      </div>
+    </section>
+
+    <!-- Log Panel -->
+    <section class="panel" id="panel-log">
+      <div class="log-panel" id="logPanelContent">
+        <div class="log-title">📜 事件日志</div>
+        <!-- Content generated by log-ui.js -->
+      </div>
+    </section>
+
+    <!-- Save Panel -->
+    <section class="panel" id="panel-save">
+      <div class="save-panel" id="savePanelContent">
+        <div class="save-title">💾 存档管理</div>
+        <!-- Content generated by save-ui.js -->
+        <div class="save-actions" style="margin-top:16px; display:flex; gap:10px;">
+          <button class="save-btn save-btn--save" id="btnQuickSave">💾 快速存档</button>
+          <button class="save-btn save-btn--load" id="btnRefreshSaves">🔄 刷新列表</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Settings Panel (F7) -->
+    <section class="panel" id="panel-settings">
+      <div class="settings-panel">
+
+        <!-- 二级：设置子菜单 -->
+        <div class="settings-page settings-page--active" id="settingsSubMenu">
+          <div class="settings-title">⚙️ 设置</div>
+          <div class="settings-sub-menu">
+            <button class="settings-sub-menu__btn" data-page="api">
+              <span class="settings-sub-menu__icon">🔌</span>
+              <span>API 设置</span>
+              <span class="settings-sub-menu__desc">配置三级模型端点与参数</span>
+            </button>
+            <button class="settings-sub-menu__btn" data-page="ui">
+              <span class="settings-sub-menu__icon">🎨</span>
+              <span>UI 设置</span>
+              <span class="settings-sub-menu__desc">状态显示 · 字体大小 · 背景色</span>
+            </button>
+            <button class="settings-sub-menu__btn" data-page="pipeline">
+              <span class="settings-sub-menu__icon">⚡</span>
+              <span>管线配置</span>
+              <span class="settings-sub-menu__desc">管线可视化 · 功能开关</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 三级：管线配置页 -->
+        <div class="settings-page" id="settingsPipelinePage">
+          <button class="settings-back-btn" data-back="menu">← 返回</button>
+          <div class="settings-title">⚡ 管线配置</div>
+
+          <!-- 管线可视化：节点图视图 -->
+          <div class="pipeline-view" id="pipelineGraphView">
+            <div class="pipeline-graph-container" id="pipelineGraph">
+              <div class="pipeline-graph__scroll" id="pipelineGraphScroll">
+                <div class="pg-zoom-wrapper" id="pipelineGraphZoom">
+                  <svg class="pipeline-graph__svg" id="pipelineGraphSvg">
+                    <defs>
+                      <marker id="pg-arrow-strong" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="5" markerHeight="5" orient="auto">
+                        <path d="M1 1L6 4L1 7" fill="none" stroke="#f85149" stroke-width="0.8" opacity="0.5"/>
+                      </marker>
+                      <marker id="pg-arrow-medium" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="5" markerHeight="5" orient="auto">
+                        <path d="M1 1L6 4L1 7" fill="none" stroke="#d29922" stroke-width="0.8" opacity="0.5"/>
+                      </marker>
+                      <marker id="pg-arrow-light" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="5" markerHeight="5" orient="auto">
+                        <path d="M1 1L6 4L1 7" fill="none" stroke="#7ee787" stroke-width="0.8" opacity="0.5"/>
+                      </marker>
+                      <marker id="pg-arrow-python" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="5" markerHeight="5" orient="auto">
+                        <path d="M1 1L6 4L1 7" fill="none" stroke="#58a6ff" stroke-width="0.8" opacity="0.5"/>
+                      </marker>
+                    </defs>
+                    <g id="pg-wires-group"></g>
+                  </svg>
+                  <div class="pipeline-graph__nodes" id="pipelineGraphNodes"></div>
+                </div>
+              </div>
+              <div class="pipeline-graph__toolbar">
+                <button class="pipeline-graph__toolbar-btn" id="pgBtnLayout">⇄ 横排</button>
+                <span class="pg-toolbar-sep">|</span>
+                <span class="pg-zoom-display" id="pgZoomLevel">100%</span>
+                <span class="pg-toolbar-sep">|</span>
+                <button class="pipeline-graph__toolbar-btn" id="pgBtnReset">↺ 重置布局</button>
+                <button class="pipeline-graph__toolbar-btn pipeline-graph__toolbar-btn--active" id="pgBtnSnap">⬡ 吸附</button>
+              </div>
+            </div>
+          </div>
+
+
+          <!-- 功能开关 -->
+          <div class="pipeline-features-section">
+            <div class="pipeline-tree-section__label">功能开关</div>
+            <div class="pipeline-features-list" id="pipelineFeaturesList">
+              <!-- JS 动态渲染 -->
+            </div>
+          </div>
+
+          <div class="settings-form__actions">
+            <button class="settings-btn settings-btn--reset" id="btnResetPipeline">🔄 恢复默认</button>
+            <button class="settings-btn settings-btn--apply" id="btnApplyPipeline">✅ 应用配置</button>
+          </div>
+        </div>
+
+        <!-- 三级：API 设置页（卡片式：三级模型同屏展现） -->
+        <div class="settings-page" id="settingsApiPage">
+          <button class="settings-back-btn" data-back="menu">← 返回</button>
+          <div class="settings-title">🔌 API 设置</div>
+
+          <!-- 三级模型卡片容器 -->
+          <div class="settings-tier-cards">
+
+            <!-- 强模型 -->
+            <div class="settings-tier-card" data-tier="strong">
+              <div class="settings-tier-card__header">
+                <div class="settings-tier-card__icon" style="background:#1c1f30;color:#f85149;">S</div>
+                <div>
+                  <div class="settings-tier-card__name">强模型 <span class="settings-tier-card__tag">场景导演 · 叙事编织 · 神谕反思</span></div>
+                  <div class="settings-tier-card__desc">生成核心叙事 · 编织对话 · 神谕反思</div>
+                </div>
+              </div>
+              <div class="settings-tier-card__fields">
+                <div class="settings-tier-card__field">
+                  <label>API 端点</label>
+                  <input type="text" class="settings-field-input" data-field="strong-endpoint" placeholder="http://localhost:11434">
+                </div>
+                <div class="settings-tier-card__field">
+                  <label>模型</label>
+                  <input type="text" class="settings-field-input" data-field="strong-model" placeholder="qwen3.5:9b">
+                </div>
+                <div class="settings-tier-card__field">
+                  <label>温度 <span id="strong-temp-val">0.7</span></label>
+                  <input type="range" class="settings-field-slider" data-field="strong-temperature" min="0" max="2" step="0.1" value="0.7">
+                </div>
+                <div class="settings-tier-card__field">
+                  <label>最大 Token</label>
+                  <input type="number" class="settings-field-input settings-field-input--small" data-field="strong-max_tokens" placeholder="4096" min="256" max="32768" step="256">
+                </div>
+                <div class="settings-tier-card__field" style="max-width:100%;">
+                  <label>API 密钥 <span class="settings-tier-card__field-hint">OpenAI/DeepSeek 需要，Ollama 留空</span></label>
+                  <input type="password" class="settings-field-input" data-field="strong-api_key" placeholder="留空使用默认（Ollama 无需密钥）">
+                </div>
+              </div>
+              <div class="settings-tier-card__actions">
+                <button class="settings-btn settings-btn--reset" data-tier="strong">🔄 重置</button>
+                <button class="settings-btn settings-btn--apply" data-tier="strong">✅ 应用</button>
+              </div>
+            </div>
+
+            <!-- 中模型 -->
+            <div class="settings-tier-card" data-tier="medium">
+              <div class="settings-tier-card__header">
+                <div class="settings-tier-card__icon" style="background:#1c1f17;color:#d29922;">M</div>
+                <div>
+                  <div class="settings-tier-card__name">中模型 <span class="settings-tier-card__tag">动机分析 · 对话编织 · 审计</span></div>
+                  <div class="settings-tier-card__desc">动机分析 · 对话编织 · 审计 · 线索管理</div>
+                </div>
+              </div>
+              <div class="settings-tier-card__fields">
+                <div class="settings-tier-card__field">
+                  <label>API 端点</label>
+                  <input type="text" class="settings-field-input" data-field="medium-endpoint" placeholder="http://localhost:11434">
+                </div>
+                <div class="settings-tier-card__field">
+                  <label>模型</label>
+                  <input type="text" class="settings-field-input" data-field="medium-model" placeholder="qwen3.5:9b">
+                </div>
+                <div class="settings-tier-card__field">
+                  <label>温度 <span id="medium-temp-val">0.7</span></label>
+                  <input type="range" class="settings-field-slider" data-field="medium-temperature" min="0" max="2" step="0.1" value="0.7">
+                </div>
+                <div class="settings-tier-card__field">
+                  <label>最大 Token</label>
+                  <input type="number" class="settings-field-input settings-field-input--small" data-field="medium-max_tokens" placeholder="2048" min="256" max="32768" step="256">
+                </div>
+                <div class="settings-tier-card__field" style="max-width:100%;">
+                  <label>API 密钥 <span class="settings-tier-card__field-hint">OpenAI/DeepSeek 需要，Ollama 留空</span></label>
+                  <input type="password" class="settings-field-input" data-field="medium-api_key" placeholder="留空使用默认（Ollama 无需密钥）">
+                </div>
+              </div>
+              <div class="settings-tier-card__actions">
+                <button class="settings-btn settings-btn--reset" data-tier="medium">🔄 重置</button>
+                <button class="settings-btn settings-btn--apply" data-tier="medium">✅ 应用</button>
+              </div>
+            </div>
+
+            <!-- 轻模型 -->
+            <div class="settings-tier-card" data-tier="light">
+              <div class="settings-tier-card__header">
+                <div class="settings-tier-card__icon" style="background:#0d1a17;color:#7ee787;">L</div>
+                <div>
+                  <div class="settings-tier-card__name">轻模型 <span class="settings-tier-card__tag">动作指导 · 状态提取 · 评分</span></div>
+                  <div class="settings-tier-card__desc">动作指导 · 状态提取 · 评分 · 工具调用</div>
+                </div>
+              </div>
+              <div class="settings-tier-card__fields">
+                <div class="settings-tier-card__field">
+                  <label>API 端点</label>
+                  <input type="text" class="settings-field-input" data-field="light-endpoint" placeholder="http://localhost:11434">
+                </div>
+                <div class="settings-tier-card__field">
+                  <label>模型</label>
+                  <input type="text" class="settings-field-input" data-field="light-model" placeholder="qwen3.5:9b">
+                </div>
+                <div class="settings-tier-card__field">
+                  <label>温度 <span id="light-temp-val">0.5</span></label>
+                  <input type="range" class="settings-field-slider" data-field="light-temperature" min="0" max="2" step="0.1" value="0.5">
+                </div>
+                <div class="settings-tier-card__field">
+                  <label>最大 Token</label>
+                  <input type="number" class="settings-field-input settings-field-input--small" data-field="light-max_tokens" placeholder="1024" min="256" max="32768" step="256">
+                </div>
+                <div class="settings-tier-card__field" style="max-width:100%;">
+                  <label>API 密钥 <span class="settings-tier-card__field-hint">OpenAI/DeepSeek 需要，Ollama 留空</span></label>
+                  <input type="password" class="settings-field-input" data-field="light-api_key" placeholder="留空使用默认（Ollama 无需密钥）">
+                </div>
+              </div>
+              <div class="settings-tier-card__actions">
+                <button class="settings-btn settings-btn--reset" data-tier="light">🔄 重置</button>
+                <button class="settings-btn settings-btn--apply" data-tier="light">✅ 应用</button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- 三级：UI 设置页（紧凑列表布局） -->
+        <div class="settings-page" id="settingsUiPage">
+          <button class="settings-back-btn" data-back="menu">← 返回</button>
+          <div class="settings-title">🎨 UI 设置</div>
+
+          <div class="settings-ui-layout">
+
+            <div class="settings-list-section">
+              <div class="settings-list-section__label">显示</div>
+
+              <div class="settings-list-row">
+                <div class="settings-list-row__key">
+                  生成状态方式
+                  <span class="settings-list-row__hint">Pipeline 反馈样式</span>
+                </div>
+                <div class="settings-list-row__val">
+                  <div class="settings-tag-group" id="statusDisplayToggle">
+                    <button class="settings-tag-btn settings-tag-btn--active" data-mode="bubbles">🫧 气泡</button>
+                    <span class="settings-tag-sep">丨</span>
+                    <button class="settings-tag-btn" data-mode="label">📝 单行</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="settings-list-row">
+                <div class="settings-list-row__key">
+                  字体大小
+                  <span class="settings-list-row__hint">叙事面板</span>
+                </div>
+                <div class="settings-list-row__val">
+                  <div class="font-stepper" id="fontStepper">
+                    <button class="font-stepper__btn" id="fontStepDown">－</button>
+                    <input type="number" class="font-stepper__input" id="fontSizeInput" min="12" max="22" step="1" value="15">
+                    <button class="font-stepper__btn" id="fontStepUp">＋</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="settings-list-row">
+                <div class="settings-list-row__key">
+                  UI 背景色
+                  <span class="settings-list-row__hint">面板底色</span>
+                </div>
+                <div class="settings-list-row__val">
+                  <div class="settings-tag-group" id="bgThemeToggle">
+                    <button class="settings-tag-btn settings-tag-btn--active" data-theme="dark">🌙 暗色</button>
+                    <span class="settings-tag-sep">丨</span>
+                    <button class="settings-tag-btn" data-theme="dim">🌑 灰暗</button>
+                    <span class="settings-tag-sep">丨</span>
+                    <button class="settings-tag-btn" data-theme="black">⬛ 纯黑</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- 共用状态区 -->
+        <div class="settings-status" id="settingsStatus"></div>
+      </div>
+    </section>
+
+    <!-- Threads Panel (F8 线索) -->
+    <section class="panel" id="panel-threads">
+      <div class="threads-panel" id="threadsPanelContent">
+        <!-- Content generated by threads.js -->
+      </div>
+    </section>
+
+  </main>
+
+  <!-- CHARACTER SIDE PANEL (Right) -->
+  <aside class="char-side-panel" id="charSidePanel">
+    <div class="char-side-panel__title">👥 当前在场角色</div>
+    <div id="charSidePanelContent">
+      <!-- Content generated by characters.js -->
+    </div>
+  </aside>
+</div>
+
+<!-- ==================== STATUS BAR ==================== -->
+  <footer class="status-bar">
+  <div class="status-bar__shortcuts">
+    <span class="status-bar__shortcut"><span class="status-bar__key">F1</span> 剧情</span>
+    <span class="status-bar__shortcut"><span class="status-bar__key">F2</span> 世界观</span>
+    <span class="status-bar__shortcut"><span class="status-bar__key">F3</span> 角色</span>
+    <span class="status-bar__shortcut"><span class="status-bar__key">F4</span> 地点</span>
+    <span class="status-bar__shortcut"><span class="status-bar__key">F5</span> 日志</span>
+    <span class="status-bar__shortcut"><span class="status-bar__key">F6</span> 存档</span>
+    <span class="status-bar__shortcut"><span class="status-bar__key">F7</span> 设置</span>
+    <span class="status-bar__shortcut"><span class="status-bar__key">F8</span> 线索</span>
+  </div>
+  <div class="status-bar__beat">
+    第 <span id="beatCount">0</span> 节拍
+  </div>
+</footer>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- Edit Modals -->
+<!-- ═══════════════════════════════════════════════ -->
+
+<!-- Character Edit Modal -->
+<div class="modal-overlay" id="characterEditModal" style="display:none">
+  <div class="modal-card">
+    <div class="modal-card__title" id="characterModalTitle">编辑角色</div>
+    <div class="modal-card__body">
+      <div class="edit-field">
+        <label class="edit-field__label">姓名</label>
+        <input class="edit-field__input" id="charEditName" placeholder="角色姓名">
+      </div>
+      <div class="edit-field">
+        <label class="edit-field__label">身份/角色</label>
+        <input class="edit-field__input" id="charEditRole" placeholder="主角/配角/反派/路人">
+      </div>
+      <div class="edit-field">
+        <label class="edit-field__label">别名（逗号分隔）</label>
+        <input class="tag-input" id="charEditAliases" placeholder="别名1, 别名2">
+      </div>
+      <h3 class="edit-modal-section">性格特征</h3>
+      <div class="edit-field">
+        <label class="edit-field__label">性格特质（逗号分隔）</label>
+        <input class="tag-input" id="charEditTraits" placeholder="勇敢, 善良, 冲动">
+      </div>
+      <div class="edit-field">
+        <label class="edit-field__label">说话风格</label>
+        <input class="edit-field__input" id="charEditSpeechStyle" placeholder="直率/文雅/粗鲁">
+      </div>
+      <div class="edit-field">
+        <label class="edit-field__label">核心动机</label>
+        <input class="edit-field__input" id="charEditMotivation" placeholder="保护家人">
+      </div>
+      <div class="edit-field">
+        <label class="edit-field__label">核心恐惧</label>
+        <input class="edit-field__input" id="charEditFear" placeholder="失去">
+      </div>
+      <div class="edit-field">
+        <label class="edit-field__label">道德阵营</label>
+        <input class="edit-field__input" id="charEditMoral" placeholder="善良/中立/邪恶">
+      </div>
+      <h3 class="edit-modal-section">外观与能力</h3>
+      <div class="edit-field">
+        <label class="edit-field__label">外貌描述</label>
+        <textarea class="edit-field__textarea" id="charEditAppearance" placeholder="外貌特征描述..."></textarea>
+      </div>
+      <div class="edit-field">
+        <label class="edit-field__label">能力（逗号分隔）</label>
+        <input class="tag-input" id="charEditAbilities" placeholder="剑术, 魔法, 隐身">
+      </div>
+      <div class="edit-field">
+        <label class="edit-field__label">关键特征（逗号分隔）</label>
+        <input class="tag-input" id="charEditKeyTraits" placeholder="剑客, 流浪者, 复仇者">
+      </div>
+      <div class="edit-field">
+        <label class="edit-field__label">起始地点</label>
+        <input class="edit-field__input" id="charEditStartLoc" placeholder="loc_001">
+      </div>
+    </div>
+    <div class="modal-card__actions">
+      <button class="modal-btn modal-btn--delete" id="btnCharDelete" style="display:none">💀 标记死亡</button>
+      <button class="modal-btn modal-btn--cancel" id="btnCharCancel">取消</button>
+      <button class="modal-btn modal-btn--save" id="btnCharSave">💾 保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Location Edit Modal -->
+<div class="modal-overlay" id="locationEditModal" style="display:none">
+  <div class="modal-card">
+    <div class="modal-card__title" id="locationModalTitle">编辑地点</div>
+    <div class="modal-card__body">
+      <div class="edit-field">
+        <label class="edit-field__label">地点名称</label>
+        <input class="edit-field__input" id="locEditName" placeholder="地点名称">
+      </div>
+      <div class="edit-field">
+        <label class="edit-field__label">类型</label>
+        <input class="edit-field__input" id="locEditType" placeholder="城市/建筑/自然/其他">
+      </div>
+      <div class="edit-field">
+        <label class="edit-field__label">父地点 ID</label>
+        <input class="edit-field__input" id="locEditParent" placeholder="留空表示顶级地点">
+      </div>
+      <div class="edit-field">
+        <label class="edit-field__label">描述</label>
+        <textarea class="edit-field__textarea" id="locEditDesc" placeholder="地点描述..."></textarea>
+      </div>
+      <div class="edit-field">
+        <label class="edit-field__label">氛围</label>
+        <input class="edit-field__input" id="locEditAtmosphere" placeholder="神秘/热闹/荒凉/庄严">
+      </div>
+    </div>
+    <div class="modal-card__actions">
+      <button class="modal-btn modal-btn--delete" id="btnLocDelete" style="display:none">🗑️ 删除地点</button>
+      <button class="modal-btn modal-btn--cancel" id="btnLocCancel">取消</button>
+      <button class="modal-btn modal-btn--save" id="btnLocSave">💾 保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- World Rules Edit Modal -->
+<div class="modal-overlay" id="worldRulesEditModal" style="display:none">
+  <div class="modal-card">
+    <div class="modal-card__title">⚙️ 编辑世界观规则</div>
+    <div class="modal-card__body">
+      <div class="edit-field">
+        <label class="edit-field__label">时代背景</label>
+        <input class="edit-field__input" id="wrEditEra" placeholder="中世纪/现代/未来/架空">
+      </div>
+      <div class="edit-field">
+        <label class="edit-field__label">魔法/能力系统（JSON）</label>
+        <textarea class="edit-field__textarea edit-field__textarea--code" id="wrEditMagic" placeholder='{"type": "元素魔法", "rules": "..."}'></textarea>
+      </div>
+      <div class="edit-field">
+        <label class="edit-field__label">社会结构（JSON）</label>
+        <textarea class="edit-field__textarea edit-field__textarea--code" id="wrEditSociety" placeholder='{"government": "君主制", "classes": [...]}'></textarea>
+      </div>
+      <div class="edit-field">
+        <label class="edit-field__label">物种（逗号分隔）</label>
+        <input class="tag-input" id="wrEditSpecies" placeholder="人类, 精灵, 矮人">
+      </div>
+    </div>
+    <div class="modal-card__actions">
+      <button class="modal-btn modal-btn--cancel" id="btnWrCancel">取消</button>
+      <button class="modal-btn modal-btn--save" id="btnWrSave">💾 保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Death Confirmation Modal -->
+<div class="modal-overlay" id="deathConfirmModal" style="display:none">
+  <div class="modal-card modal-card--small">
+    <div class="modal-card__title">💀 确认标记角色死亡</div>
+    <div class="modal-card__body">
+      <p class="modal-card__desc">此角色将从活跃列表中移除，但保留在档案中。</p>
+      <div class="edit-field">
+        <label class="edit-field__label">死亡地点</label>
+        <input class="edit-field__input" id="deathLocation" placeholder="角色死亡的地点">
+      </div>
+      <div class="edit-field">
+        <label class="edit-field__label">死亡时间</label>
+        <input class="edit-field__input" id="deathTime" placeholder="第三章 / 第3年">
+      </div>
+      <div class="edit-field">
+        <label class="edit-field__label">死亡原因</label>
+        <input class="edit-field__input" id="deathCause" placeholder="被反派杀害">
+      </div>
+    </div>
+    <div class="modal-card__actions">
+      <button class="modal-btn modal-btn--cancel" id="btnDeathCancel">取消</button>
+      <button class="modal-btn modal-btn--delete" id="btnDeathConfirm">💀 确认死亡</button>
+    </div>
+  </div>
+</div>
+
+<!-- Emergence Detail Modal (涌现实体详情) -->
+<div class="modal-overlay" id="emergenceModal" style="display:none">
+  <div class="modal-card modal-card--small">
+    <div class="modal-card__title">🌟 涌现实体</div>
+    <div class="modal-card__body">
+      <div class="emergence-card__type" id="emergenceType">角色</div>
+
+      <div class="emergence-card__hits">
+        提及次数: <span id="emergenceHits">0</span> 次
+      </div>
+
+      <div class="emergence-card__samples" id="emergenceSamples">
+        <!-- 提及原文示例 -->
+      </div>
+
+      <div class="emergence-card__profile" id="emergenceProfile">
+        <div class="emergence-card__profile-title">建议档案</div>
+        <div class="emergence-card__profile-text" id="emergenceProfileText">—</div>
+      </div>
+    </div>
+    <div class="modal-card__actions">
+      <button class="modal-btn modal-btn--cancel" id="btnEmergenceDismiss">❌ 忽略</button>
+      <button class="modal-btn modal-btn--save" id="btnEmergenceConfirm">✅ 确认纳入</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- JavaScript Modules -->
+<!-- ═══════════════════════════════════════════════ -->
+<script type="module" src="/static/js/app.js"></script>
+<script type="module" src="/static/js/pipeline-config.js"></script>
+</body>
+</html>
