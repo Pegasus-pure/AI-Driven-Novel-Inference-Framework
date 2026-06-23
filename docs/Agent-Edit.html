@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rain · MaNA v4 管线节点图</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root { --bg:#0d1117; --bg-el:#161b22; --bdr:#30363d; --text:#c9d1d9; --muted:#8b949e; --green:#3fb950; --blue:#58a6ff; --red:#f85149; --yellow:#d29922; }
+  body { background:var(--bg); color:var(--text); font:13px 'SF Mono','Cascadia Code',monospace; height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+  .bar { display:flex; gap:8px; padding:6px 12px; background:var(--bg-el); border-bottom:1px solid var(--bdr); align-items:center; flex-shrink:0; }
+  .bar button { background:var(--bg-el); color:var(--text); border:1px solid var(--bdr); padding:4px 12px; border-radius:4px; cursor:pointer; font-size:11px; font-family:inherit; white-space:nowrap; }
+  .bar button:hover { background:#21262d; }
+  .bar .sep { width:1px; height:16px; background:var(--bdr); margin:0 2px; }
+  .bar .leg { display:flex; gap:8px; font-size:10px; align-items:center; margin-left:auto; }
+  .bar .leg i { width:7px; height:7px; border-radius:2px; display:inline-block; margin-right:2px; }
+  .wrap { flex:1; position:relative; overflow:hidden; cursor:grab; }
+  .wrap:active { cursor:grabbing; }
+  canvas { position:absolute; top:0; left:0; width:100%; height:100%; }
+  .dlg { display:none; position:absolute; background:var(--bg-el); border:1px solid var(--bdr); border-radius:6px; padding:10px; z-index:10; font-size:11px; min-width:210px; box-shadow:0 4px 16px rgba(0,0,0,.5); flex-direction:column; gap:5px; }
+  .dlg.on { display:flex; }
+  .dlg input,.dlg select { width:100%; background:var(--bg); color:var(--text); border:1px solid var(--bdr); border-radius:3px; padding:4px 6px; font-size:11px; font-family:inherit; }
+  .dlg .row { display:flex; gap:4px; justify-content:flex-end; }
+  .dlg .row button { padding:3px 10px; font-size:10px; border-radius:3px; cursor:pointer; border:1px solid var(--bdr); background:var(--bg); color:var(--text); font-family:inherit; }
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <button id="btnAdd">＋ 新建</button>
+  <span class="sep"></span>
+  <span style="font-size:11px;color:var(--muted)">🖱拖拽移动 | Ctrl+滚轮缩放 | 拖空白平移 | 双击编辑 | 右键拖边连线</span>
+  <div class="leg">
+    <span><i style="background:#58a6ff"></i>python</span>
+    <span><i style="background:#f85149"></i>strong</span>
+    <span><i style="background:#d29922"></i>medium</span>
+    <span><i style="background:#3fb950"></i>light</span>
+  </div>
+</div>
+
+<div class="wrap" id="wrap">
+  <canvas id="c"></canvas>
+  <div class="dlg" id="dlg">
+    <input id="deLabel" placeholder="名称">
+    <input id="deIcon" placeholder="图标 🎬" maxlength="4">
+    <input id="deAgent" placeholder="Agent 类名">
+    <input id="deDesc" placeholder="描述">
+    <select id="deTier">
+      <option value="python">python</option>
+      <option value="strong" selected>strong</option>
+      <option value="medium">medium</option>
+      <option value="light">light</option>
+    </select>
+    <input id="deFeature" placeholder="功能开关 key（留空=无）">
+    <select id="deLink"><option value="">→ 连线到...</option></select>
+    <div id="deOut" style="display:flex;flex-wrap:wrap;gap:3px;min-height:18px;font-size:10px;"></div>
+    <div class="row">
+      <button id="btnDel" style="color:var(--red);border-color:var(--red)">删除</button>
+      <button id="btnClose">取消</button>
+      <button id="btnSave" style="color:var(--green);border-color:var(--green)">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════ 静态数据（不可变）═
+const NODES = [
+  { id:'context',       label:'上下文构建',    agent:'ContextBuilder',    tier:'python', icon:'📋', desc:'注入记忆·冲突·微反馈' },
+  { id:'director',      label:'场景导演',      agent:'SceneDirector',    tier:'strong', icon:'🎬', desc:'多路径策略(best_of_3/multi_view)' },
+  { id:'continuity',    label:'连续性审计',    agent:'ContinuityChecker',tier:'medium', icon:'🔗', desc:'逻辑一致+失败重试', feature:'continuity_check' },
+  { id:'motivation',    label:'动机分析',      agent:'MotivationEngine', tier:'medium', icon:'💡', desc:'N角色并行·独立Provider' },
+  { id:'dialogue',      label:'对话/动作',     agent:'DialogueWeaver',   tier:'light',  icon:'💬', desc:'Nx2 并行生成' },
+  { id:'reflection',    label:'角色反思',      agent:'RoleReflector',    tier:'light',  icon:'🤔', desc:'状态跳跃·NEED_REWRITE', feature:'role_reflection' },
+  { id:'composer',      label:'场景编剧',      agent:'SceneComposer',    tier:'strong', icon:'🎨', desc:'精益循环(重试2次)' },
+  { id:'auditor',       label:'一致性验收',    agent:'ConsistencyAuditor',tier:'medium',icon:'🔍', desc:'verdict+overall_quality' },
+  { id:'state',         label:'状态提取',      agent:'StateExtractor',   tier:'light',  icon:'📊', desc:'reputation/mood/loc/knowledge' },
+  { id:'micro_oracle',  label:'微观神谕',      agent:'MicroOracleAgent', tier:'light',  icon:'🔮', desc:'每拍质量反馈注入', feature:'micro_oracle' },
+  { id:'character_mgr', label:'角色管理',      agent:'CharacterManager', tier:'light',  icon:'👥', desc:'涌现实体检测', feature:'emergence_system' },
+  { id:'location_mgr',  label:'地点管理',      agent:'LocationManager',  tier:'light',  icon:'🗺️', desc:'涌现实体检测', feature:'emergence_system' },
+  { id:'thread_mgr',    label:'线索管理',      agent:'ThreadManager',    tier:'medium', icon:'🧵', desc:'线索生命周期管理' },
+  { id:'apply_state',   label:'状态应用',      agent:'Python',           tier:'python', icon:'🐍', desc:'写入 world_state' },
+  { id:'oracle',        label:'宏观神谕',      agent:'ReflectionOracle', tier:'strong', icon:'🔯', desc:'每N拍评估(oracle_interval)' },
+];
+let EDGES = [
+  ['context','director'],['director','continuity'],['director','motivation'],
+  ['continuity','motivation'],['motivation','dialogue'],['dialogue','reflection'],
+  ['reflection','composer'],['composer','auditor'],['auditor','state'],
+  ['auditor','micro_oracle'],['auditor','character_mgr'],['auditor','location_mgr'],
+  ['state','thread_mgr'],['micro_oracle','thread_mgr'],['character_mgr','thread_mgr'],
+  ['location_mgr','thread_mgr'],['thread_mgr','apply_state'],['apply_state','oracle'],
+];
+const DEF_POS = {
+  context:[2500,2200],director:[2500,2330],continuity:[2500,2480],
+  motivation:[2750,2480],dialogue:[2750,2630],reflection:[2750,2780],
+  composer:[2500,2780],auditor:[2500,2930],state:[2500,3080],
+  micro_oracle:[2750,3080],character_mgr:[3000,3080],location_mgr:[3250,3080],
+  thread_mgr:[2750,3230],apply_state:[2750,3380],oracle:[2750,3530],
+};
+const NW=150, NH=85;
+const TIER={python:'#58a6ff',strong:'#f85149',medium:'#d29922',light:'#3fb950'};
+const TF={python:'rgba(88,166,255,0.08)',strong:'rgba(248,81,73,0.08)',medium:'rgba(210,153,34,0.08)',light:'rgba(63,185,80,0.08)'};
+const TB={python:'rgba(88,166,255,0.35)',strong:'rgba(248,81,73,0.35)',medium:'rgba(210,153,34,0.35)',light:'rgba(63,185,80,0.35)'};
+
+// ═══════ 运行时状态 ══
+const STOR='rain_preview';
+const pos={};
+NODES.forEach(n=>{n._x=DEF_POS[n.id]?DEF_POS[n.id][0]:2500;n._y=DEF_POS[n.id]?DEF_POS[n.id][1]:2500;pos[n.id]=[n._x,n._y];});
+let _nid=200;
+
+(function load(){
+  try{const r=localStorage.getItem(STOR);if(r){const d=JSON.parse(r);
+  Object.keys(d.p).forEach(k=>{pos[k]=d.p[k];});
+  if(d.nodes){d.nodes.forEach(s=>{if(!NODES.find(n=>n.id===s.id)){NODES.push(s);pos[s.id]=[s._x,s._y];}});}
+  _nid=d._nid||200;return;}}catch(e){}
+  // 首次加载：用默认位置
+  NODES.forEach(n=>{pos[n.id]=[DEF_POS[n.id]?DEF_POS[n.id][0]:2500,DEF_POS[n.id]?DEF_POS[n.id][1]:2500];});
+})();
+
+function save(){
+  const p={};NODES.forEach(n=>{p[n.id]=pos[n.id];});
+  const customNodes=NODES.filter(n=>!DEF_POS[n.id]);
+  localStorage.setItem(STOR,JSON.stringify({p,nodes:customNodes,_nid}));
+}
+
+// ═══════ 渲染 ══
+const c=document.getElementById('c'),ctx=c.getContext('2d'),wrap=document.getElementById('wrap');
+let zoom=1,px=0,py=0,drag=null,pan=null,conn=null;
+
+function edgePt(nx,ny,dx,dy){
+  const cx=nx+NW/2,cy=ny+NH/2;
+  let tx=Infinity,ty=Infinity;
+  if(dx>0.001)tx=(NW/2)/dx;else if(dx<-0.001)tx=(-NW/2)/dx;
+  if(dy>0.001)ty=(NH/2)/dy;else if(dy<-0.001)ty=(-NH/2)/dy;
+  const t=Math.min(tx,ty);
+  return{x:cx+t*dx,y:cy+t*dy};
+}
+
+function render(){
+  c.width=wrap.clientWidth;c.height=wrap.clientHeight;
+  ctx.clearRect(0,0,c.width,c.height);
+  ctx.save();ctx.translate(px,py);ctx.scale(zoom,zoom);
+
+  // 网格
+  ctx.strokeStyle='rgba(48,54,61,0.2)';ctx.lineWidth=0.5;
+  const gs=40,sx=Math.floor(-px/zoom/gs)*gs,ex=Math.ceil((c.width-px)/zoom/gs)*gs;
+  const sy=Math.floor(-py/zoom/gs)*gs,ey=Math.ceil((c.height-py)/zoom/gs)*gs;
+  for(let x=sx;x<=ex;x+=gs){ctx.beginPath();ctx.moveTo(x,sy);ctx.lineTo(x,ey);ctx.stroke();}
+  for(let y=sy;y<=ey;y+=gs){ctx.beginPath();ctx.moveTo(sx,y);ctx.lineTo(ex,y);ctx.stroke();}
+
+  // 临时连线
+  if(conn){
+    const p=pos[conn.from];if(p){const cx=p[0]+NW/2,cy=p[1]+NH/2;
+    ctx.strokeStyle='#58a6ff';ctx.lineWidth=1.5;ctx.setLineDash([5,4]);
+    ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(conn.mx,conn.my);ctx.stroke();ctx.setLineDash([]);}
+  }
+
+  // 连线
+  EDGES.forEach(([f,t])=>{
+    const fp=pos[f],tp=pos[t];if(!fp||!tp)return;
+    const dx=tp[0]-fp[0],dy=tp[1]-fp[1];if(!dx&&!dy)return;
+    const p1=edgePt(fp[0],fp[1],dx,dy),p2=edgePt(tp[0],tp[1],-dx,-dy);
+    const mx=(p1.x+p2.x)/2,my=(p1.y+p2.y)/2;
+    const tier=(NODES.find(n=>n.id===f)||{}).tier||'light';
+    ctx.strokeStyle=TIER[tier];ctx.lineWidth=1.5;ctx.globalAlpha=0.45;
+    ctx.beginPath();ctx.moveTo(p1.x,p1.y);ctx.quadraticCurveTo(mx,my,p2.x,p2.y);ctx.stroke();
+    const a=Math.atan2(p2.y-my,p2.x-mx);
+    ctx.fillStyle=TIER[tier];ctx.globalAlpha=0.5;
+    ctx.beginPath();ctx.moveTo(p2.x-6*Math.cos(a-Math.PI/6),p2.y-6*Math.sin(a-Math.PI/6));
+    ctx.lineTo(p2.x,p2.y);ctx.lineTo(p2.x-6*Math.cos(a+Math.PI/6),p2.y-6*Math.sin(a+Math.PI/6));ctx.fill();
+    ctx.globalAlpha=1;
+  });
+
+  // 节点
+  NODES.forEach(n=>{
+    const p=pos[n.id];if(!p)return;
+    const x=p[0],y=p[1],accent=TIER[n.tier]||TIER.light;
+    ctx.shadowColor='rgba(0,0,0,0.4)';ctx.shadowBlur=8;
+    ctx.fillStyle=TF[n.tier]||TF.light;ctx.strokeStyle=TB[n.tier]||TB.light;ctx.lineWidth=1;
+    _round(x,y,NW,NH,8);ctx.fill();ctx.stroke();ctx.shadowBlur=0;
+    ctx.fillStyle=accent;ctx.globalAlpha=0.25;
+    ctx.beginPath();ctx.moveTo(x+8,y);ctx.lineTo(x+NW-8,y);ctx.lineTo(x+NW-8,y+3);ctx.lineTo(x+8,y+3);ctx.fill();ctx.globalAlpha=1;
+    ctx.font='18px sans-serif';ctx.textAlign='center';ctx.fillStyle='#fff';ctx.fillText(n.icon||'⬡',x+28,y+35);
+    ctx.font='bold 12px "SF Mono","Cascadia Code",monospace';ctx.textAlign='left';ctx.fillStyle='#e6edf3';ctx.fillText(n.label,x+46,y+28);
+    ctx.font='9px monospace';ctx.fillStyle='#8b949e';ctx.fillText(n.agent||'',x+46,y+42);
+    ctx.font='9px monospace';ctx.fillStyle='#484f58';const d=n.desc||'';ctx.fillText(d.length>22?d.slice(0,22)+'\u2026':d,x+10,y+68);
+    if(n.feature){ctx.font='8px monospace';const tag='\u2699 '+n.feature,tw=ctx.measureText(tag).width;
+      ctx.fillStyle='rgba(0,0,0,0.35)';_round(x+NW-tw-14,y+3,tw+10,15,3);ctx.fill();ctx.fillStyle=accent;ctx.fillText(tag,x+NW-tw-9,y+14);}
+  });
+  ctx.restore();
+}
+function _round(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.arcTo(x+w,y,x+w,y+r,r);ctx.lineTo(x+w,y+h-r);ctx.arcTo(x+w,y+h,x+w-r,y+h,r);ctx.lineTo(x+r,y+h);ctx.arcTo(x,y+h,x,y+h-r,r);ctx.lineTo(x,y+r);ctx.arcTo(x,y,x+r,y,r);ctx.closePath();}
+
+// ═══════ 交互 ══
+function W2S(wx,wy){return{x:wx*zoom+px,y:wy*zoom+py};}
+function S2W(sx,sy){return{x:(sx-px)/zoom,y:(sy-py)/zoom};}
+function hit(wx,wy){for(let i=NODES.length-1;i>=0;i--){const p=pos[NODES[i].id];if(!p)continue;if(wx>=p[0]-4&&wx<=p[0]+NW+4&&wy>=p[1]-4&&wy<=p[1]+NH+4)return{id:NODES[i].id,edge:wx>=p[0]+NW-12};}return null;}
+
+c.addEventListener('mousedown',e=>{
+  const wp=S2W(e.offsetX,e.offsetY),h=hit(wp.x,wp.y);
+  if(e.button===2){e.preventDefault();if(h&&h.edge){const p=pos[h.id];conn={from:h.id,mx:wp.x,my:wp.y};}return;}
+  if(e.button===0&&h){const p=pos[h.id];drag={id:h.id,sx:e.offsetX,sy:e.offsetY,ox:p[0],oy:p[1]};}
+  else if(e.button===0){pan={sx:e.offsetX,sy:e.offsetY,opx:px,opy:py};wrap.style.cursor='grabbing';}
+});
+document.addEventListener('mousemove',e=>{
+  const r=wrap.getBoundingClientRect();
+  if(drag){const p=pos[drag.id];p[0]=drag.ox+(e.clientX-r.left-drag.sx)/zoom;p[1]=drag.oy+(e.clientY-r.top-drag.sy)/zoom;render();
+    if(_edId===drag.id){const wp=W2S(p[0]+NW+10,p[1]);dlg.style.left=Math.min(wp.x,c.width-230)+'px';dlg.style.top=Math.max(0,Math.min(wp.y,c.height-260))+'px';}}
+  else if(pan){px=pan.opx+e.clientX-pan.sx-r.left;py=pan.opy+e.clientY-pan.sy-r.top;render();}
+  else if(conn){const wp=S2W(e.clientX-r.left,e.clientY-r.top);conn.mx=wp.x;conn.my=wp.y;render();}
+});
+document.addEventListener('mouseup',e=>{
+  if(drag){save();drag=null;}
+  else if(pan){pan=null;wrap.style.cursor='grab';}
+  else if(conn){const r=wrap.getBoundingClientRect(),wp=S2W(e.clientX-r.left,e.clientY-r.top),h=hit(wp.x,wp.y);
+    if(h&&h.id!==conn.from&&!EDGES.some(([f,t])=>f===conn.from&&t===h.id)){EDGES.push([conn.from,h.id]);save();}
+    conn=null;render();}
+});
+c.addEventListener('dblclick',e=>{const wp=S2W(e.offsetX,e.offsetY),h=hit(wp.x,wp.y);if(h)openDlg(h.id);});
+c.addEventListener('wheel',e=>{if(!e.ctrlKey)return;e.preventDefault();const d=e.deltaY>0?0.9:1.1,nz=Math.min(2.5,Math.max(0.3,zoom*d));
+  const mx=e.offsetX,my=e.offsetY;px=mx-(mx-px)*(nz/zoom);py=my-(my-py)*(nz/zoom);zoom=nz;render();},{passive:false});
+c.addEventListener('contextmenu',e=>e.preventDefault());
+
+// ═══════ 编辑器 ══
+const dlg=document.getElementById('dlg');let _edId=null,_snap=null;
+function openDlg(id){_edId=id;const n=NODES.find(x=>x.id===id);if(!n)return;
+  _snap={label:n.label,icon:n.icon,agent:n.agent,desc:n.desc,tier:n.tier,feature:n.feature,edges:[...EDGES]};
+  document.getElementById('deLabel').value=n.label||'';document.getElementById('deIcon').value=n.icon||'';
+  document.getElementById('deAgent').value=n.agent||'';document.getElementById('deDesc').value=n.desc||'';
+  document.getElementById('deTier').value=n.tier||'light';document.getElementById('deFeature').value=n.feature||'';
+  const sel=document.getElementById('deLink');sel.innerHTML='<option value="">→ 连线到...</option>';
+  NODES.filter(x=>x.id!==id).forEach(x=>{const o=document.createElement('option');o.value=x.id;o.textContent=(x.icon||'')+' '+x.label;sel.appendChild(o);});
+  sel.value='';
+  _showOutEdges(id);
+  const p=pos[id],wp=W2S(p[0]+NW+10,p[1]);dlg.style.left=Math.min(wp.x,c.width-230)+'px';dlg.style.top=Math.max(0,Math.min(wp.y,c.height-360))+'px';dlg.classList.add('on');}
+function _showOutEdges(id){const out=document.getElementById('deOut');out.innerHTML='';EDGES.filter(e=>e[0]===id).forEach(e=>{const tn=NODES.find(x=>x.id===e[1]);if(!tn)return;const t=document.createElement('span');t.style.cssText='background:var(--bg);border:1px solid var(--bdr);border-radius:3px;padding:1px 5px;display:inline-flex;align-items:center;gap:2px;cursor:pointer';t.innerHTML=(tn.icon||'')+tn.label+' <b style="color:var(--red)">×</b>';t.addEventListener('click',()=>{EDGES=EDGES.filter(x=>!(x[0]===id&&x[1]===e[1]));_showOutEdges(id);save();render();});out.appendChild(t);});}
+function closeDlg(){if(_snap&&_edId){const n=NODES.find(x=>x.id===_edId);if(n){n.label=_snap.label;n.icon=_snap.icon;n.agent=_snap.agent;n.desc=_snap.desc;n.tier=_snap.tier;n.feature=_snap.feature;}EDGES=_snap.edges;save();render();}dlg.classList.remove('on');_edId=null;_snap=null;}
+function saveDlg(){_snap=null;closeDlg();}
+function addNode(){const id='n'+_nid++,wp=S2W(c.width/2,c.height/2);const n={id,label:'新节点',agent:'NewAgent',tier:'light',icon:'🆕',desc:'',feature:''};NODES.push(n);pos[id]=[Math.round(wp.x/20)*20,Math.round(wp.y/20)*20];save();render();openDlg(id);}
+function delNode(){if(!_edId)return;EDGES=EDGES.filter(e=>e[0]!==_edId&&e[1]!==_edId);const i=NODES.findIndex(x=>x.id===_edId);if(i>=0)NODES.splice(i,1);delete pos[_edId];dlg.classList.remove('on');_edId=null;_snap=null;save();render();}
+document.getElementById('btnAdd').addEventListener('click',addNode);
+document.getElementById('btnSave').addEventListener('click',saveDlg);
+document.getElementById('btnClose').addEventListener('click',closeDlg);
+document.getElementById('btnDel').addEventListener('click',delNode);
+document.getElementById('deLink').addEventListener('change',function(){
+  const to=this.value;if(!to||!_edId)return;
+  if(!EDGES.some(e=>e[0]===_edId&&e[1]===to)){EDGES.push([_edId,to]);_showOutEdges(_edId);save();render();}
+  this.value='';
+});
+
+// ═══════ 启动 ══
+requestAnimationFrame(()=>requestAnimationFrame(()=>{
+  const p=pos['context'];px=c.width/2-p[0];py=c.height/2-p[1];render();
+}));
+window.addEventListener('resize',render);
+</script>
+</body>
+</html>

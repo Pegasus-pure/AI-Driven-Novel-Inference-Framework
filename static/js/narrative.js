@@ -61,7 +61,7 @@ export class NarrativeRenderer {
     });
 
     // 初始欢迎消息
-    this._appendSystemLine('✦ Rain Web 已就绪 · 输入你的行动开始冒险 ✦');
+    this._appendSystemLine('✦ 小说模拟器已就绪 · 输入你的行动开始冒险 ✦');
 
     console.log('[Narrative] 初始化完成');
   }

@@ -27,7 +27,7 @@ PIPELINE_TREE: List[Dict[str, Any]] = [
         "label": "场景导演",
         "agent": "SceneDirector",
         "tier": "strong",
-        "desc": "多路径（best_of_3 / multi_view / 标准）",
+        "desc": "多路径（best_of_n / multi_view / 标准）",
         "children": ["continuity", "motivation"],
         "conditional": True,
     },
@@ -213,7 +213,7 @@ CONFIG_DEFINE: Dict[str, Dict[str, Any]] = {
     # ─────────────────────────────────────────────
     # providers 段（3 个智能层）
     # ─────────────────────────────────────────────
-    "providers.导演层.type": {
+    "providers.strong.type": {
         "label": "提供商类型",
         "desc": "ollama = 本地 Ollama\nopenai = OpenAI API\nanthropic = Anthropic API",
         "section": "providers",
@@ -221,7 +221,7 @@ CONFIG_DEFINE: Dict[str, Dict[str, Any]] = {
         "default": "ollama",
         "advanced": False,
     },
-    "providers.导演层.endpoint": {
+    "providers.strong.endpoint": {
         "label": "API 地址",
         "desc": "Ollama 默认 http://127.0.0.1:11434\nOpenAI 默认 https://api.openai.com/v1",
         "section": "providers",
@@ -229,7 +229,7 @@ CONFIG_DEFINE: Dict[str, Dict[str, Any]] = {
         "default": "",
         "advanced": False,
     },
-    "providers.导演层.model": {
+    "providers.strong.model": {
         "label": "模型名称",
         "desc": "Ollama：qwen3.5:9b / llama3.1:8b 等\nOpenAI：gpt-4o / gpt-4-turbo 等",
         "section": "providers",
@@ -237,7 +237,7 @@ CONFIG_DEFINE: Dict[str, Dict[str, Any]] = {
         "default": "",
         "advanced": False,
     },
-    "providers.导演层.api_key": {
+    "providers.strong.api_key": {
         "label": "API 密钥",
         "desc": "Ollama 留空\nOpenAI/Anthropic 填对应密钥",
         "section": "providers",
@@ -245,7 +245,7 @@ CONFIG_DEFINE: Dict[str, Dict[str, Any]] = {
         "default": "",
         "advanced": False,
     },
-    "providers.导演层.temperature": {
+    "providers.strong.temperature": {
         "label": "温度系数",
         "desc": "0.0 = 确定性强（适合规划）\n1.0 = 创造性强（适合叙事）",
         "section": "providers",
@@ -253,25 +253,25 @@ CONFIG_DEFINE: Dict[str, Dict[str, Any]] = {
         "default": 0.7,
         "advanced": False,
     },
-    "providers.导演层.max_tokens": {
+    "providers.strong.max_tokens": {
         "label": "最大 Token 数",
-        "desc": "单次生成的最大 token 数\n导演层需要较多 token 用于规划",
+        "desc": "单次生成的最大 token 数\nstrong（导演层）需要较多 token 用于规划",
         "section": "providers",
         "type": "int",
         "default": 4096,
         "advanced": False,
     },
-    "providers.导演层.timeout": {
+    "providers.strong.timeout": {
         "label": "请求超时（秒）",
-        "desc": "超过此时间未完成则取消请求\n导演层模型较慢，建议 180 秒",
+        "desc": "超过此时间未完成则取消请求\nstrong（导演层）模型较慢，建议 180 秒",
         "section": "providers",
         "type": "int",
         "default": 180,
         "advanced": True,
     },
 
-    # 演员层（复用结构，仅改默认值）
-    "providers.演员层.type": {
+    # medium（演员层）（复用结构，仅改默认值）
+    "providers.medium.type": {
         "label": "提供商类型",
         "desc": "ollama = 本地 Ollama\nopenai = OpenAI API\nanthropic = Anthropic API",
         "section": "providers",
@@ -279,7 +279,7 @@ CONFIG_DEFINE: Dict[str, Dict[str, Any]] = {
         "default": "ollama",
         "advanced": False,
     },
-    "providers.演员层.endpoint": {
+    "providers.medium.endpoint": {
         "label": "API 地址",
         "desc": "Ollama 默认 http://127.0.0.1:11434",
         "section": "providers",
@@ -287,15 +287,15 @@ CONFIG_DEFINE: Dict[str, Dict[str, Any]] = {
         "default": "",
         "advanced": False,
     },
-    "providers.演员层.model": {
+    "providers.medium.model": {
         "label": "模型名称",
-        "desc": "演员层负责动机分析和对话生成",
+        "desc": "medium（演员层）负责动机分析和对话生成",
         "section": "providers",
         "type": "str",
         "default": "",
         "advanced": False,
     },
-    "providers.演员层.api_key": {
+    "providers.medium.api_key": {
         "label": "API 密钥",
         "desc": "Ollama 留空",
         "section": "providers",
@@ -303,7 +303,7 @@ CONFIG_DEFINE: Dict[str, Dict[str, Any]] = {
         "default": "",
         "advanced": False,
     },
-    "providers.演员层.temperature": {
+    "providers.medium.temperature": {
         "label": "温度系数",
         "desc": "0.7 = 平衡创造性与确定性",
         "section": "providers",
@@ -311,7 +311,7 @@ CONFIG_DEFINE: Dict[str, Dict[str, Any]] = {
         "default": 0.7,
         "advanced": False,
     },
-    "providers.演员层.max_tokens": {
+    "providers.medium.max_tokens": {
         "label": "最大 Token 数",
         "desc": "对话生成较短，1024-2048 足够",
         "section": "providers",
@@ -319,17 +319,17 @@ CONFIG_DEFINE: Dict[str, Dict[str, Any]] = {
         "default": 2048,
         "advanced": False,
     },
-    "providers.演员层.timeout": {
+    "providers.medium.timeout": {
         "label": "请求超时（秒）",
-        "desc": "演员层并行生成，建议 120 秒",
+        "desc": "medium（演员层）并行生成，建议 120 秒",
         "section": "providers",
         "type": "int",
         "default": 120,
         "advanced": True,
     },
 
-    # 动作层
-    "providers.动作层.type": {
+    # light（动作层）
+    "providers.light.type": {
         "label": "提供商类型",
         "desc": "ollama = 本地 Ollama",
         "section": "providers",
@@ -337,7 +337,7 @@ CONFIG_DEFINE: Dict[str, Dict[str, Any]] = {
         "default": "ollama",
         "advanced": False,
     },
-    "providers.动作层.endpoint": {
+    "providers.light.endpoint": {
         "label": "API 地址",
         "desc": "Ollama 默认 http://127.0.0.1:11434",
         "section": "providers",
@@ -345,15 +345,15 @@ CONFIG_DEFINE: Dict[str, Dict[str, Any]] = {
         "default": "",
         "advanced": False,
     },
-    "providers.动作层.model": {
+    "providers.light.model": {
         "label": "模型名称",
-        "desc": "动作层负责状态提取，不需要强模型",
+        "desc": "light（动作层）负责状态提取，不需要强模型",
         "section": "providers",
         "type": "str",
         "default": "",
         "advanced": False,
     },
-    "providers.动作层.api_key": {
+    "providers.light.api_key": {
         "label": "API 密钥",
         "desc": "Ollama 留空",
         "section": "providers",
@@ -361,7 +361,7 @@ CONFIG_DEFINE: Dict[str, Dict[str, Any]] = {
         "default": "",
         "advanced": False,
     },
-    "providers.动作层.temperature": {
+    "providers.light.temperature": {
         "label": "温度系数",
         "desc": "0.5 = 低温度，保证状态提取准确性",
         "section": "providers",
@@ -369,7 +369,7 @@ CONFIG_DEFINE: Dict[str, Dict[str, Any]] = {
         "default": 0.5,
         "advanced": False,
     },
-    "providers.动作层.max_tokens": {
+    "providers.light.max_tokens": {
         "label": "最大 Token 数",
         "desc": "状态提取输出较短，1024 足够",
         "section": "providers",
@@ -377,9 +377,9 @@ CONFIG_DEFINE: Dict[str, Dict[str, Any]] = {
         "default": 1024,
         "advanced": False,
     },
-    "providers.动作层.timeout": {
+    "providers.light.timeout": {
         "label": "请求超时（秒）",
-        "desc": "动作层模型较快，60 秒足够",
+        "desc": "light（动作层）模型较快，60 秒足够",
         "section": "providers",
         "type": "int",
         "default": 60,
@@ -392,14 +392,6 @@ CONFIG_DEFINE: Dict[str, Dict[str, Any]] = {
     "features.refinement": {
         "label": "叙事精益循环",
         "desc": "编剧层根据审计反馈多轮重写\nwarning → 重写 1 次\nFAIL → 重写 2 次\n影响：提升叙事质量，但增加 API 调用",
-        "section": "features",
-        "type": "bool",
-        "default": True,
-        "advanced": False,
-    },
-    "features.best_of_3": {
-        "label": "导演多候选",
-        "desc": "导演层生成 3 个候选 plan\nPlanScorer 选最优\n影响：提升场景规划质量，但增加 3 倍 API 调用",
         "section": "features",
         "type": "bool",
         "default": True,
@@ -555,10 +547,10 @@ CONFIG_DEFINE: Dict[str, Dict[str, Any]] = {
     },
     "continuity.tier": {
         "label": "使用的智能层",
-        "desc": "演员层 = 平衡性能与质量\n导演层 = 更高质量，但增加成本",
+        "desc": "medium（演员层） = 平衡性能与质量\nstrong（导演层） = 更高质量，但增加成本",
         "section": "continuity",
         "type": "str",
-        "default": "演员层",
+        "default": "medium（演员层）",
         "advanced": True,
     },
 
@@ -567,10 +559,10 @@ CONFIG_DEFINE: Dict[str, Dict[str, Any]] = {
     # ─────────────────────────────────────────────
     "reflection.tier": {
         "label": "使用的智能层",
-        "desc": "动作层 = 快速检测\n演员层 = 更精准，但增加成本",
+        "desc": "light（动作层） = 快速检测\nmedium（演员层） = 更精准，但增加成本",
         "section": "reflection",
         "type": "str",
-        "default": "动作层",
+        "default": "light（动作层）",
         "advanced": True,
     },
     "reflection.check_clothing": {
@@ -650,8 +642,8 @@ CONFIG_DEFINE: Dict[str, Dict[str, Any]] = {
         "advanced": True,
     },
     "memory.top_k_director": {
-        "label": "导演层检索数量",
-        "desc": "导演层每次检索 N 条记忆\n建议 5-10",
+        "label": "strong（导演层）检索数量",
+        "desc": "strong（导演层）每次检索 N 条记忆\n建议 5-10",
         "section": "memory",
         "type": "int",
         "default": 5,
@@ -851,10 +843,10 @@ CONFIG_DEFINE: Dict[str, Dict[str, Any]] = {
     },
     "prompt_optimization.provider": {
         "label": "使用的智能层",
-        "desc": "优化 Prompt 时使用的智能层\n建议用导演层（最强模型）",
+        "desc": "优化 Prompt 时使用的智能层\n建议用strong（导演层）（最强模型）",
         "section": "prompt_optimization",
         "type": "str",
-        "default": "导演层",
+        "default": "strong（导演层）",
         "advanced": False,
     },
     "prompt_optimization.high_reward_threshold": {
@@ -883,11 +875,39 @@ CONFIG_DEFINE: Dict[str, Dict[str, Any]] = {
     },
 
     # ─────────────────────────────────────────────
+    # director 段（导演层 Best-of-N）
+    # ─────────────────────────────────────────────
+    "director.best_of_n.enabled": {
+        "label": "启用导演 Best-of-N",
+        "desc": "SceneDirector 生成 N 个候选 plan，PlanScorer 选最优\n与 composer.best_of_n 不同（那是编剧层）",
+        "section": "director",
+        "type": "bool",
+        "default": True,
+        "advanced": False,
+    },
+    "director.best_of_n.sample_count": {
+        "label": "候选数量",
+        "desc": "生成 N 个候选 plan，选最优\n建议 3-5",
+        "section": "director",
+        "type": "int",
+        "default": 3,
+        "advanced": True,
+    },
+    "director.best_of_n.temperatures": {
+        "label": "温度列表",
+        "desc": "不同候选使用不同温度，制造多样性\n建议 [0.4, 0.6, 0.8]",
+        "section": "director",
+        "type": "list",
+        "default": [0.4, 0.6, 0.8],
+        "advanced": True,
+    },
+
+    # ─────────────────────────────────────────────
     # composer 段
     # ─────────────────────────────────────────────
     "composer.best_of_n.enabled": {
         "label": "启用 Best-of-N",
-        "desc": "编剧层生成 N 个候选，选最优\n与 features.best_of_3 不同（那是导演层）",
+        "desc": "编剧层生成 N 个候选，选最优\n与 director.best_of_n 不同（那是导演层）",
         "section": "composer",
         "type": "bool",
         "default": False,
@@ -931,7 +951,7 @@ PIPELINE_NODES_META: Dict[str, Dict[str, Any]] = {
     },
     "director": {
         "label": "场景导演",
-        "desc": "多路径策略(best_of_3/multi_view)",
+        "desc": "多路径策略(best_of_n/multi_view)",
         "icon": "🎭",
         "emoji": "🎭",
         "tier": "strong",

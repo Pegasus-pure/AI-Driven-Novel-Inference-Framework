@@ -49,6 +49,20 @@ class DialogueWeaver(BaseAgent):
 4. **互动性**: 如果角色在对话中（有 counterpart），注意反应和互动
 5. **玩家驱动**: 玩家的行动是触发因素。角色应对玩家的行为有语言上的回应
 
+## 认知冲突对话规则（灵魂附生模式）
+
+如果角色的认知冲突度（dissonance）> 0.3：
+- 对话中可以包含试探性语句（"你今天有点不一样"）
+- tone 可以包含：试探、怀疑、困惑
+
+如果 dissonance > 0.6：
+- 对话可以直接提及差异（"你到底是谁？"）
+- tone 可以包含：质问、戒备、警惕
+
+如果角色处于 adapted 阶段：
+- 无论之前的记忆如何，角色已接受当前的主角
+- 对话中不再体现异常
+
 ## 输出 JSON 格式
 
 ```json
@@ -170,39 +184,7 @@ class DialogueWeaver(BaseAgent):
 
         return "\n".join(lines)
 
-    async def run(self, input_data: dict) -> dict:
-        sys = str(input_data.get("system_prompt", "") or "") or self.build_system_prompt()
-        usr = self.build_user_prompt(input_data)
 
-        char_name = str((input_data.get("character", {}) or {}).get("name", "?"))
-        self._log_info(f"→ 编织 {char_name} 的对话...")
-
-        result = await self._call_llm(sys, usr, {"json_mode": True, "temperature": 0.85})
-
-        if not result.get("ok", False):
-            return {"ok": False, "content": "", "raw": {}, "error": result.get("error", "LLM call failed")}
-
-        parsed = self._parse_json_response(result)
-        if parsed.get("error", ""):
-            return {"ok": False, "content": result.get("content", ""), "raw": {},
-                    "error": "JSON parse failed: " + str(parsed.get("error", ""))}
-
-        data: dict = parsed.get("data", {}) or {}
-        if not data.get("character_id"):
-            data["character_id"] = str((input_data.get("character", {}) or {}).get("char_id", ""))
-
-        validation = MananaSchema.validate_dialogue_output(data)
-        if not validation.get("valid", False):
-            self._log_warn(f"输出验证失败: {validation.get('errors', [])}")
-
-        dialogue_count = len(data.get("dialogue", []) or [])
-        self._log_info(f"→ {char_name}: {dialogue_count} 条对话")
-
-        return {"ok": True, "content": result.get("content", ""), "raw": data}
-
-
-# ============================================================
-# L3b: ConsistencyAuditor
-# ============================================================
-
+    def _get_llm_options(self, input_data: dict) -> dict:
+        return {"json_mode": True, "temperature": 0.85}
 

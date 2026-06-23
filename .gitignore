@@ -1,33 +1,17 @@
-# === 敏感信息 —— 绝对不能提交 ===
-*.env
-*.env.local
-*.env.*.local
-**/secrets/**
-**/credentials/**
-**/private/
-
-# === Godot 项目 ===
-.godot/
-*.uid
-*.import
-export_presets.cfg
-logs/
-
-# === Python 构建产物 ===
+# Python
 __pycache__/
 *.pyc
 *.pyo
-dist/
-*.egg-info/
 
-# === 运行时数据（含日志、评测指标）===
-server/**/metrics/
+# Runtime
 saves/
+dist/
+build/
 
-# === 小说原文（受版权保护，不应上传 GitHub）===
-novel/
+# Config backup
+config.yaml.bak
 
-# === 系统垃圾 ===
-Thumbs.db
-.DS_Store
-Desktop.ini
+# IDE
+.vscode/
+.idea/
+*.swp

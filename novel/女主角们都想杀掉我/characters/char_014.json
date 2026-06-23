@@ -1,0 +1,17 @@
+{
+  "id": "char_014",
+  "name": "露露",
+  "aliases": [
+    "被囚禁者"
+  ],
+  "role": "配角",
+  "personality": {
+    "traits": [
+      "坚韧",
+      "感恩"
+    ]
+  },
+  "background_summary": "因弗雷的计划被打乱而被困在炼狱数月的少女。被格蕾尔（协助者任务）从炼狱中救出。",
+  "status": "alive",
+  "memory_of_protagonist": {}
+}

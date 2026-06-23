@@ -1,0 +1,16 @@
+{
+  "id": "char_033",
+  "name": "学院A班贵族学生群体",
+  "aliases": [],
+  "role": "群体NPC",
+  "personality": {
+    "traits": [
+      "傲慢",
+      "欺压平民",
+      "欺软怕硬"
+    ]
+  },
+  "background_summary": "日出学院A班（贵族班）的学生群体。大多数是腐败的贵族子弟。在迎新晚会上欺负伊琳娜的三个贵族学生是典型代表。以女神的姿态俯视C班平民同学。",
+  "status": "alive",
+  "memory_of_protagonist": {}
+}

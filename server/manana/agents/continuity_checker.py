@@ -41,8 +41,7 @@ class ContinuityChecker(BaseAgent):
 ## 审计原则
 
 1. **历史优先**: 叙事必须延续上一拍的历史上下文，不能跳跃
-2. **玩家权限低于逻辑**: 即使玩家提出了要求，如果与历史的合理推演冲突，系统有权拒绝
-3. **合理性 > 趣味性**: 好故事首先是自洽的，然后才是有趣的
+2. **合理性 > 趣味性**: 好故事首先是自洽的，然后才是有趣的
 
 ## 三种判决
 
@@ -54,7 +53,6 @@ class ContinuityChecker(BaseAgent):
 ### REJECTED（打回）
 - 节拍计划与历史严重冲突
 - 角色行为完全违背其性格或前一拍的状态
-- 玩家要求与合理推演矛盾且 plan 照单全收
 
 ### NEEDS_TRANSITION（需过渡）
 - 节拍计划本身合理但有较大的方向变化
@@ -129,36 +127,7 @@ class ContinuityChecker(BaseAgent):
 
         return "\n".join(lines)
 
-    async def run(self, input_data: dict) -> dict:
-        sys = str(input_data.get("system_prompt", "") or "") or self.build_system_prompt()
-        usr = self.build_user_prompt(input_data)
 
-        self._log_info("→ 审计剧本连续性...")
-        log_layer("L1b", "ContinuityChecker 启动")
+    def _get_llm_options(self, input_data: dict) -> dict:
+        return {"json_mode": True, "temperature": 0.3}
 
-        result = await self._call_llm(sys, usr, {"json_mode": True, "temperature": 0.3})
-
-        if not result.get("ok", False):
-            return {"ok": False, "verdict": "APPROVED", "raw": {},
-                    "error": result.get("error", "LLM call failed")}
-
-        parsed = self._parse_json_response(result)
-        if parsed.get("error", ""):
-            return {"ok": False, "verdict": "APPROVED", "raw": {},
-                    "error": "JSON parse failed: " + str(parsed.get("error", ""))}
-
-        data: dict = parsed.get("data", {}) or {}
-        verdict = str(data.get("verdict", "APPROVED"))
-        reason = str(data.get("reason", ""))
-        conflicts = data.get("conflict_details", []) or []
-
-        if verdict == "REJECTED":
-            self._log_warn(f"⚠ 连续性审计 REJECTED: {reason}")
-        elif verdict == "NEEDS_TRANSITION":
-            self._log_info(f"→ 连续性审计 NEEDS_TRANSITION: {reason}")
-        else:
-            self._log_info("→ 连续性审计通过 ✓")
-        log_layer("L1b", f"ContinuityChecker {verdict} — {len(conflicts)} 冲突点")
-
-        return {"ok": True, "verdict": verdict, "reason": reason,
-                "conflict_details": conflicts, "raw": data}

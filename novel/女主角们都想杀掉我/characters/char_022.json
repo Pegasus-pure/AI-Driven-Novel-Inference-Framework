@@ -1,0 +1,17 @@
+{
+  "id": "char_022",
+  "name": "伊莎贝尔",
+  "aliases": [
+    "被诅咒的贵族女"
+  ],
+  "role": "龙套反派",
+  "personality": {
+    "traits": [
+      "傲慢",
+      "刻薄"
+    ]
+  },
+  "background_summary": "学院贵族学生，因在弗雷面前侮辱卡尼亚而被卡尼亚用诅咒折磨（严重腹泻），被窗外魔王的乌鸦盯上。",
+  "status": "alive",
+  "memory_of_protagonist": {}
+}

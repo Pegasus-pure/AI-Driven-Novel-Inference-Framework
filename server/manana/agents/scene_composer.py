@@ -10,7 +10,7 @@ from typing import Any
 
 from ..base_agent import BaseAgent
 from ..schema import MananaSchema
-from ..utils import log_layer
+from ..utils import _extract_brace_block, _try_parse_json
 
 
 _log = logging.getLogger("MaNA.Agent.Strong")
@@ -51,7 +51,23 @@ class SceneComposer(BaseAgent):
 6. **心理描写**: 适度加入角色的内心感受和微表情，但不要过度解释。
 
 7. **结尾钩子**: 在叙事末尾留下悬念或一个待解答的问题，激发玩家继续。
+"""
 
+        # ★ 灵魂附生模式：注入 POV 约束
+        scene_ctx = getattr(self, "_last_scene_context", {}) or {}
+        base_prompt += self._build_pov_prompt()
+
+        # ── 元数据 JSON 模板（灵魂附生模式：soul_decision 替代 choices）──
+        soul_decision_example = """    "authentic": [
+      {"id": "auth_1", "text": "你的本我行动选项 1", "hint": "简要提示"},
+      {"id": "auth_2", "text": "你的本我行动选项 2", "hint": "简要提示"}
+    ],
+    "conforming": [
+      {"id": "conf_1", "text": "贴合角色的行动选项 1", "hint": "简要提示"},
+      {"id": "conf_2", "text": "贴合角色的行动选项 2", "hint": "简要提示"}
+    ]"""
+
+        json_template = f"""
 ## 输出格式
 
 你的响应分为两部分：
@@ -65,26 +81,20 @@ class SceneComposer(BaseAgent):
 ```json
 {{
   "ending_hook": "结尾钩子——暗示下一步发展的悬念句",
-  "action_hints": ["玩家可能的行动方向 1", "玩家可能的行动方向 2", "玩家可能的行动方向 3"],
+  "action_hints": ["玩家可能的行动方向 1", "玩家可能的行动方向 2"],
   "music_mood": "场景情绪标签，如: 紧张、温馨、悲伤、神秘、欢快、庄严、平淡",
-  "choices": [
-    {{"id": "c1", "text": "仔细观察周围环境", "hint": "了解你身处何方", "next_scene_hint": "observe_surroundings"}},
-    {{"id": "c2", "text": "检查自己的状态和记忆", "hint": "弄清楚你是谁", "next_scene_hint": "self_examination"}},
-    {{"id": "c3", "text": "向前迈出一步探索", "hint": "主动探索未知世界", "next_scene_hint": "step_forward"}}
-  ]
+  "soul_decision": {{{{
+{soul_decision_example}
+  }}}}
 }}
 ```
 
-## choices 字段说明
-- choices 是玩家在本节拍叙事结束后可选择的行动选项
-- choices 最少 2 个，最多 4 个
-- 每个 choice 必须包含 id/text/hint/next_scene_hint 四个字段
-- id 格式为 c1, c2, c3...
-- choices 应当与当前场景和叙事内容紧密相关，是玩家自然可能采取的行动
-- hint 是对该选项的简短提示（显示为次要文字）
-- next_scene_hint 是给导演的提示，告诉导演玩家选此选项后应如何推进
-
+**soul_decision 说明**: 包含 authentic 和 conforming 两个数组，各提供 2-4 个具体行动选项。每个选项含 id（"auth_N" 或 "conf_N"）、text（选项文本）、hint（提示）。
+"""
+        base_prompt += f"""
 **重要**: JSON 块必须是最后一个内容，位于 `{self.JSON_SEPARATOR}` 之后。叙事散文中不要包含任何 JSON 或代码块。
+
+如果你在散文结束后没有添加分隔符，请在散文最后一行的末尾直接添加 `{self.JSON_SEPARATOR}` 然后紧跟 JSON 对象。
 """
         if optimization_hints:
             base_prompt += f"\n\n## 高质量叙事参考特征（由 PromptOptimizer 自动生成）\n{optimization_hints}\n"
@@ -94,6 +104,9 @@ class SceneComposer(BaseAgent):
         director: dict = input_data.get("director_output", {}) or {}
         character_outputs: list = input_data.get("character_outputs", []) or []
         scene_ctx: dict = input_data.get("scene_context_summary", {}) or {}
+
+        # ★ 存储 scene_ctx 供 build_system_prompt 使用
+        self._last_scene_context = scene_ctx
 
         lines: list[str] = []
 
@@ -173,54 +186,79 @@ class SceneComposer(BaseAgent):
 
         return "\n".join(lines)
 
-    async def run(self, input_data: dict) -> dict:
-        sys = str(input_data.get("system_prompt", "") or "") or self.build_system_prompt()
-        usr = self.build_user_prompt(input_data)
+    # ────────────────────────────────────────────────
+    # 灵魂附生 POV 约束
+    # ────────────────────────────────────────────────
 
-        self._log_info("→ 编织叙事散文...")
-        log_layer("L3", f"SceneComposer 启动 — {len(input_data.get('character_outputs', []))} 角色输出")
+    @staticmethod
+    def _build_pov_prompt() -> str:
+        """构建第三人称有限视角约束 + 双灵魂叙事规则"""
+        return """
 
-        result = await self._call_llm(sys, usr, {"json_mode": False, "temperature": 0.9})
+## ════════════════════════════════════════
+## 叙事视角约束（灵魂附生模式）
+## ════════════════════════════════════════
 
-        if not result.get("ok", False):
-            return {"ok": False, "content": "", "raw": {}, "error": result.get("error", "LLM call failed")}
+本叙事以主角的第三人称有限视角展开。
 
-        content: str = result.get("content", "")
+### 规则
+1. 【所见即所知】——只描述主角亲眼看到、亲耳听到、亲身感受到的内容。
+2. 【内心世界】——主角的内心感受和情绪变化是叙事的核心。用第三人称文学化表达
+   （"一股寒意从脊背升起"而非"他感到害怕"）。
+3. 【不窥探他人内心】——不要写其他角色的内心想法，除非通过主角的外部观察和推测。
+4. 【场景锚定】——场景描写以主角的位置和感知为锚点。
+5. 【叙事张力来自有限信息】——利用主角不知道的信息创造悬念。
 
-        narrative_only = self._strip_json_suffix(content)
-        json_data = self._extract_ending_json(content)
+### 双灵魂叙事
+主角体内寄宿着两个灵魂。叙事须体现这种内心的拉扯感：
+- 用"他感到""内心有一个声音在说"来表达内心冲突
+- 当两个灵魂矛盾时，用「内心深处，另一个声音在低语……」引出 canon_echo
+- 不要写"玩家灵魂"或"原主灵魂"这样的概念——让叙事本身展现这种拉扯
 
-        if json_data:
-            validation = MananaSchema.validate_composer_output(json_data)
-            if not validation.get("valid", False):
-                self._log_warn(f"元数据验证警告: {validation.get('errors', [])}")
+### NPC 反应
+- 如果剧情上下文中有角色认知冲突信息，在叙事中自然体现NPC的困惑反应
+  （皱眉、停顿、欲言又止——不要过度解释，让行为说话）
 
-        if not narrative_only.strip():
-            narrative_only = content
-            json_data = {"ending_hook": "", "action_hints": [], "music_mood": "", "choices": []}
+"""
 
-        choices = json_data.get("choices", [])
-        if not choices or not isinstance(choices, list) or len(choices) == 0:
-            from ..defaults import get_default_choices
-            choices = get_default_choices(2)
-        valid_choices = []
-        for c in choices:
-            if isinstance(c, dict) and all(k in c for k in ("id", "text", "hint", "next_scene_hint")):
-                valid_choices.append(c)
-        if len(valid_choices) < 2:
-            from ..defaults import get_default_choices
-            defaults = get_default_choices(2)
-            while len(valid_choices) < 2:
-                valid_choices.append(defaults[len(valid_choices)])
-        json_data["choices"] = valid_choices[:4]
+    def _get_llm_options(self, input_data: dict) -> dict:
+        return {"json_mode": False, "temperature": 0.9}
 
-        self._log_info(f"→ 叙事散文 ({len(narrative_only)} 字符), 钩子: {json_data.get('ending_hook', '')}, choices: {len(json_data.get('choices', []))}")
-        log_layer("L3", f"SceneComposer 完成 — {len(narrative_only)} 字符叙事")
+    def parse_output(self, raw_response: dict) -> dict:
+        """覆盖父类 parse_output — SceneComposer 输出是叙事散文 + JSON，不是纯 JSON。
 
-        return {"ok": True, "content": narrative_only, "raw": json_data}
+        先用自定义 _extract_ending_json 尝试提取 JSON，
+        如果失败则返回最小 fallback（不阻断管线）。
+        """
+        content: str = raw_response.get("content", "") or ""
+        if not content.strip():
+            return {"ok": False, "data": {}, "error": "Empty response"}
+
+        # 先尝试自定义提取
+        meta = self._extract_ending_json(content)
+        if meta:
+            return {"ok": True, "data": meta, "error": ""}
+
+        # 提取失败但有叙事正文 → 返回 fallback JSON（保留叙事正文）
+        # 这是针对较小模型（如 qwen3.5:9b）不遵守输出格式的防护
+        _log.warning(
+            "SceneComposer JSON 提取失败（%d chars），使用 fallback 元数据", len(content)
+        )
+        return {
+            "ok": True,
+            "data": {
+                "ending_hook": "",
+                "action_hints": [],
+                "music_mood": "平淡",
+                "soul_decision": {
+                    "authentic": [{"id": "auth_1", "text": "按自己的想法行动", "hint": "跟随直觉"}],
+                    "conforming": [{"id": "conf_1", "text": "模仿原主的风格", "hint": "维持身份"}],
+                },
+            },
+            "error": "",
+        }
 
     def _extract_ending_json(self, text: str) -> dict:
-        from ..utils import _extract_brace_block, _try_parse_json
 
         idx = text.find(self.JSON_SEPARATOR)
         if idx == -1:
@@ -228,7 +266,20 @@ class SceneComposer(BaseAgent):
             if idx != -1:
                 idx += 2
             else:
-                return self._try_extract_trailing_json(text)
+                result = self._try_extract_trailing_json(text)
+                if result:
+                    return result
+                # 最后尝试：找代码块内的 JSON
+                json_start = text.rfind("```json")
+                if json_start != -1:
+                    candidate = text[json_start + 7:]
+                    end = candidate.find("```")
+                    if end != -1:
+                        candidate = candidate[:end]
+                    block = _extract_brace_block(candidate.strip())
+                    if block:
+                        return _try_parse_json(block)
+                return {}
 
         if text.find(self.JSON_SEPARATOR) != -1:
             json_text = text[idx + len(self.JSON_SEPARATOR):].strip()
@@ -254,7 +305,6 @@ class SceneComposer(BaseAgent):
         return text[:suffix_idx].strip()
 
     def _try_extract_trailing_json(self, text: str) -> dict:
-        from ..utils import _extract_brace_block, _try_parse_json
 
         trailing_brace = text.rfind("{")
         if trailing_brace == -1:

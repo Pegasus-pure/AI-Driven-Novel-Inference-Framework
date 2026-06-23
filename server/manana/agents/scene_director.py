@@ -67,12 +67,18 @@ class SceneDirector(BaseAgent):
   - revelation: 揭示/发现/真相揭露
   - daily_life: 日常生活（低张力过渡模式，用于角色塑造和情感沉淀）
 - **beat_summary**: 简练概括本节拍的核心叙事事件
-- **featured_characters**: 所有在本节拍中出场的角色 char_id 列表
+- **featured_characters**: 所有在本节拍中出场的角色 char_id 列表，优先同地点角色，**每拍选 1-4 个**（随机变化，避免每拍出场人数固定）
 - **interaction_pairs**: 角色之间的交互对。两个角色对话/互动为一对。玩家总是隐式在场，不需要放入 pair
 - **unpaired_characters**: 出场但不参与交互对的独立角色
 - **scene_tone**: 场景整体氛围
 - **priority_thread_ids**: 本节拍应推进的叙事线索 ID 列表
 - **required_canon**: 需要完整 personality 信息的角色 char_id 列表
+
+## 角色选择与场景切换
+
+- **同地点优先**: 主要从当前场景的角色中选择 featured_characters
+- **跨地点切镜**: 角色列表中标记为 cross_location 的是其他地点的角色。如果选中他们，意味着叙事镜头切换到该地点——可能那里正在发生更重要的事件，或需要并行叙事
+- **并行叙事**: 可以使用 daily_life 或 conflict 模式切入其他地点，短暂展示后切回主线
 
 ## 模式说明
 
@@ -242,31 +248,6 @@ class SceneDirector(BaseAgent):
         lines.append("请根据以上信息，输出你的导演计划 JSON。")
         return "\n".join(lines)
 
-    async def run(self, input_data: dict) -> dict:
-        sys = str(input_data.get("system_prompt", "") or "") or self.build_system_prompt()
-        usr = self.build_user_prompt(input_data)
+    def _get_llm_options(self, input_data: dict) -> dict:
+        return {"json_mode": True, "temperature": 0.8}
 
-        ctx = input_data.get("scene_context", {}) or {}
-        self._log_info("→ 调度节拍...")
-        log_layer("L1", f"SceneDirector 启动 — 分析场景上下文 ({len(ctx.get('characters', []))} 角色, {len(ctx.get('active_threads', []))} 线索)")
-
-        result = await self._call_llm(sys, usr, {"json_mode": True, "temperature": 0.8})
-
-        if not result.get("ok", False):
-            return {"ok": False, "content": "", "raw": {}, "error": result.get("error", "LLM call failed")}
-
-        parsed = self._parse_json_response(result)
-        if parsed.get("error", ""):
-            return {"ok": False, "content": result.get("content", ""), "raw": {},
-                    "error": "JSON parse failed: " + str(parsed.get("error", ""))}
-
-        data: dict = parsed.get("data", {}) or {}
-        validation = MananaSchema.validate_director_output(data)
-        if not validation.get("valid", False):
-            self._log_warn(f"输出验证失败: {validation.get('errors', [])}")
-
-        self._log_info(f"→ 节拍: {data.get('beat_id', '?')}, 模式: {data.get('narrative_mode', '?')}, "
-                       f"出场: {len(data.get('featured_characters', []))} 角色")
-        log_layer("L1", f"SceneDirector 完成 — 节拍: {data.get('beat_id', '?')}")
-
-        return {"ok": True, "content": result.get("content", ""), "raw": data}

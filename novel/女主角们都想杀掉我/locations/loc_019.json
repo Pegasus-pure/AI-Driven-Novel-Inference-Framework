@@ -1,0 +1,9 @@
+{
+  "id": "loc_019",
+  "name": "芙洛什的教堂房间",
+  "type": "房间",
+  "parent": "loc_004",
+  "description": "纯白圣女在教堂内的私人房间。芙洛什在这里准备了女仆装准备'服侍'弗雷。",
+  "atmosphere": "朴素的教会房间",
+  "first_appearance": "第4话"
+}

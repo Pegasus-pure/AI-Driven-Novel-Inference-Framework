@@ -22,6 +22,7 @@ from .role_reflector import RoleReflector
 from .character_manager import CharacterManager
 from .location_manager import LocationManager
 from .micro_oracle_agent import MicroOracleAgent
+from .soul_choice_generator import SoulChoiceGenerator
 
 __all__ = [
     "SceneDirector", "SceneComposer", "ReflectionOracle",
@@ -29,4 +30,5 @@ __all__ = [
     "ThreadManager", "PlanSynthesizerAgent", "ContinuityChecker",
     "ActionDirector", "StateExtractor", "PlanScorerAgent",
     "RoleReflector", "CharacterManager", "LocationManager", "MicroOracleAgent",
+    "SoulChoiceGenerator",
 ]

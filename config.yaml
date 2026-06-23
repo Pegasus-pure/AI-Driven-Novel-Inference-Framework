@@ -3,33 +3,32 @@ app:
   host: 127.0.0.1
   port: 8000
 providers:
-  导演层:
-    type: ollama
-    endpoint: http://localhost:11434
-    model: qwen3.5:9b
-    api_key: ''
-    temperature: 0.7
+  strong:
+    type: deepseek
+    endpoint: https://api.deepseek.com
+    model: deepseek-v4-flash
+    temperature: 0.6
     max_tokens: 4096
     timeout: 180
-  演员层:
-    type: ollama
-    endpoint: http://localhost:11434
-    model: qwen3.5:9b
-    api_key: ''
+    api_key: YOUR_DEEPSEEK_API_KEY
+  medium:
+    type: deepseek
+    endpoint: https://api.deepseek.com
+    model: deepseek-v4-flash
     temperature: 0.7
     max_tokens: 2048
     timeout: 120
-  动作层:
-    type: ollama
-    endpoint: http://localhost:11434
-    model: qwen3.5:9b
-    api_key: ''
-    temperature: 0.5
-    max_tokens: 1024
+    api_key: YOUR_DEEPSEEK_API_KEY
+  light:
+    type: deepseek
+    endpoint: https://api.deepseek.com
+    model: deepseek-v4-flash
+    temperature: 0.3
+    max_tokens: 2048
     timeout: 60
+    api_key: YOUR_DEEPSEEK_API_KEY
 features:
   refinement: true
-  best_of_3: true
   multi_view: true
   dynamic_tier: true
   micro_oracle: true
@@ -50,14 +49,17 @@ emergence:
   max_pending_entities: 50
 continuity:
   max_rewrite: 2
-  tier: 演员层
+  tier: medium
 reflection:
-  tier: 动作层
+  tier: light
   check_clothing: true
   check_location: true
   check_mood: true
   check_relationship: true
 memory:
+  persist: true
+  persist_path: novel/{title}/memory/
+  auto_flush_beats: 1
   recency_weight: 0.4
   relevance_weight: 0.3
   importance_weight: 0.3
@@ -70,6 +72,21 @@ memory:
   retention_window: 50
   low_importance_threshold: 4.0
   compact_interval: 10
+soul_possession:
+  initial_blend_ratio: 0.8
+  memory_access: full
+  personality_derivation_beats: 10
+  dissonance:
+    authentic_increment: 0.1
+    conforming_decrement: 0.08
+    decay_rate: 0.05
+    adaptation_rate: 0.05
+    confrontation_threshold: 0.7
+  scratchpad:
+    max_entries: 20
+    max_important_entries: 10
+    injection_motivation: 3
+    injection_dialogue: 2
 desktop:
   window_width: 1280
   window_height: 800
@@ -90,15 +107,23 @@ reward:
     canon_adherence: 0.2
     issue_penalty: 0.1
 prompt_optimization:
-  provider: 导演层
+  provider: strong
   high_reward_threshold: 0.7
   min_samples_for_optimization: 50
   optimization_interval: 50
 composer:
   best_of_n:
-    enabled: false
+    enabled: true
     sample_count: 3
     temperatures:
     - 0.5
     - 0.7
     - 0.9
+director:
+  best_of_n:
+    enabled: true
+    sample_count: 3
+    temperatures:
+    - 0.4
+    - 0.6
+    - 0.8

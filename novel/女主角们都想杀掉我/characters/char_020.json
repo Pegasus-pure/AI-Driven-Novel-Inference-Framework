@@ -1,0 +1,18 @@
+{
+  "id": "char_020",
+  "name": "星之神",
+  "aliases": [
+    "星神"
+  ],
+  "role": "神明",
+  "personality": {
+    "traits": [
+      "随性",
+      "淡泊"
+    ],
+    "speech": "'不如辞去神职痛饮美酒'"
+  },
+  "background_summary": "三姐妹神之一，性格最随性。一直想退休喝酒。在终盘贡献神格后转为凡人。",
+  "status": "alive（神力耗尽后退休）",
+  "memory_of_protagonist": {}
+}

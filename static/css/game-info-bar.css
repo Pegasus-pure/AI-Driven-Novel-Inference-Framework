@@ -1,0 +1,119 @@
+/* ============================================
+   Game Info Bar - 游戏信息栏样式
+   设计参考：design-interactive.html
+   ============================================ */
+
+.game-info-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 16px;
+    background: var(--bg-secondary, #1a1a2e);
+    border-bottom: 1px solid var(--border-color, #333);
+    font-size: 13px;
+    color: var(--text-primary, #e0e0e0);
+    min-height: 40px;
+}
+
+.game-info-bar__left,
+.game-info-bar__right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.game-info-bar__item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.game-info-bar__item:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.game-info-bar__icon {
+    font-size: 14px;
+    width: 20px;
+    text-align: center;
+}
+
+.game-info-bar__value {
+    font-weight: 500;
+    color: var(--text-accent, #64b5f6);
+}
+
+/* 张力值进度条 */
+.game-info-bar__tension-bar {
+    width: 60px;
+    height: 6px;
+    background: var(--bg-tertiary, #2a2a3e);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.game-info-bar__tension-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #4caf50, #ff9800, #f44336);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+    width: 50%; /* 默认值，JS 会动态更新 */
+}
+
+/* NPC 头像列表 */
+.game-info-bar__npcs {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+.game-info-bar__npc-avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--bg-accent, #1976d2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.game-info-bar__npc-avatar:hover {
+    transform: scale(1.1);
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .game-info-bar {
+        flex-direction: column;
+        gap: 8px;
+        padding: 8px;
+    }
+
+    .game-info-bar__left,
+    .game-info-bar__right {
+        width: 100%;
+        justify-content: space-around;
+    }
+
+    .game-info-bar__item {
+        font-size: 12px;
+    }
+}
+
+/* 主题适配 */
+[data-theme="light"] .game-info-bar {
+    background: var(--bg-secondary, #f5f5f5);
+    border-bottom-color: var(--border-color, #ddd);
+}
+
+[data-theme="light"] .game-info-bar__tension-bar {
+    background: var(--bg-tertiary, #e0e0e0);
+}

@@ -1,0 +1,16 @@
+{
+  "id": "char_034",
+  "name": "学院C班平民学生群体",
+  "aliases": [],
+  "role": "群体NPC",
+  "personality": {
+    "traits": [
+      "被压迫",
+      "坚韧",
+      "团结"
+    ]
+  },
+  "background_summary": "日出学院C班（平民班）的学生群体。如伊琳娜和雅莲恩。他们承受着贵族的欺压，但也因此更加团结。在平间事件后，一些学生开始觉醒反抗意识。",
+  "status": "alive",
+  "memory_of_protagonist": {}
+}

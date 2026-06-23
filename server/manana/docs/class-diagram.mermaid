@@ -1,0 +1,128 @@
+classDiagram
+    class BaseAgent {
+        <<abstract>>
+        #_provider: Optional[BaseProvider]
+        +configure(provider: BaseProvider) void
+        +build_system_prompt()* str
+        +build_user_prompt(input_data: dict)* str
+        +run(input_data: dict)* dict
+        #_call_llm(system_prompt, user_prompt, options) dict
+        #_parse_json_response(response) dict
+    }
+
+    class ContinuityChecker {
+        +agent_name: str = "ContinuityChecker"
+        +model_tier: str = "medium"
+        +build_system_prompt() str
+        +build_user_prompt(input_data: dict) str
+        +run(input_data: dict) dict
+    }
+
+    class RoleReflector {
+        +agent_name: str = "RoleReflector"
+        +model_tier: str = "light"
+        +build_system_prompt() str
+        +build_user_prompt(input_data: dict) str
+        +run(input_data: dict) dict
+    }
+
+    class CharacterManager {
+        +agent_name: str = "CharacterManager"
+        +model_tier: str = "light"
+        +build_system_prompt() str
+        +build_user_prompt(input_data: dict) str
+        +run(input_data: dict) dict
+    }
+
+    class LocationManager {
+        +agent_name: str = "LocationManager"
+        +model_tier: str = "light"
+        +build_system_prompt() str
+        +build_user_prompt(input_data: dict) str
+        +run(input_data: dict) dict
+    }
+
+    class PendingEntity {
+        +id: str
+        +entity_type: str
+        +name: str
+        +accumulations: int
+        +first_seen_beat: str
+        +last_seen_beat: str
+        +accumulated_context: list[str]
+        +status: str
+        +readiness: str
+        +full_profile: dict
+        +judged_at_beat: str
+    }
+
+    class WorldState {
+        +pending_emergences: dict[str, PendingEntity]
+        +game_time: str
+        +player_location: str
+        +characters_state: dict
+        +narrative_threads: dict
+        +world_divergence: float
+        +...
+        +add_emergence_signal(entity_id, entity_type, name, context) void
+        +get_pending_emergences_snapshot() dict
+        +update_emergence_status(entity_id, status, readiness, profile) void
+        +to_dict() dict
+        +from_dict(data: dict) WorldState
+    }
+
+    class MananaPipeline {
+        -_config: MananaConfig
+        -_provider_strong: BaseProvider
+        -_provider_medium: BaseProvider
+        -_provider_light: BaseProvider
+        -_beat_count: int
+        -_last_narrative: str
+        +initialize() void
+        +run_beat(player_action, world_state, progress_cb) dict
+        -_run_continuity_check(plan, ctx) dict
+        -_rerun_director(ctx) dict
+        -_run_role_reflection(character_outputs, ctx, plan) dict
+        -_inject_transition_notes(character_outputs, reflect_result) list
+        -_run_character_manager(narrative_text, character_outputs, ws_dict) dict
+        -_run_location_manager(narrative_text, ctx, ws_dict) dict
+        -_judge_emergence(entity, ws_dict) dict
+        -_merge_emergence_signals(signals, world_state) void
+        -_check_and_judge_emergences(world_state) list
+    }
+
+    class MananaSchema {
+        +CONTINUITY_OUTPUT_KEYS: list[str]
+        +REFLECTOR_OUTPUT_KEYS: list[str]
+        +CHARACTER_MANAGER_OUTPUT_KEYS: list[str]
+        +LOCATION_MANAGER_OUTPUT_KEYS: list[str]
+        +EMERGENCE_JUDGMENT_OUTPUT_KEYS: list[str]
+        +validate_continuity_output(data: dict) dict
+        +validate_reflector_output(data: dict) dict
+        +validate_character_manager_output(data: dict) dict
+        +validate_location_manager_output(data: dict) dict
+    }
+
+    class MananaConfig {
+        +get_emergence_config() dict
+        +get_continuity_config() dict
+        +get_role_reflector_config() dict
+        +is_feature_enabled(feature: str) bool
+    }
+
+    %% Inheritance
+    BaseAgent <|-- ContinuityChecker
+    BaseAgent <|-- RoleReflector
+    BaseAgent <|-- CharacterManager
+    BaseAgent <|-- LocationManager
+
+    %% Composition
+    MananaPipeline *-- MananaConfig : config
+    MananaPipeline --> ContinuityChecker : creates/runs
+    MananaPipeline --> RoleReflector : creates/runs
+    MananaPipeline --> CharacterManager : creates/runs
+    MananaPipeline --> LocationManager : creates/runs
+
+    %% Association
+    WorldState "1" --> "*" PendingEntity : pending_emergences
+    MananaPipeline --> WorldState : reads/writes

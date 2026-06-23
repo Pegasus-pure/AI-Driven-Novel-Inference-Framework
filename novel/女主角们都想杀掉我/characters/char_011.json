@@ -1,0 +1,27 @@
+{
+  "id": "char_011",
+  "name": "雅莲恩",
+  "aliases": [
+    "伊琳娜的朋友",
+    "盾牌使"
+  ],
+  "role": "配角",
+  "personality": {
+    "traits": [
+      "温柔",
+      "忠诚",
+      "勇敢",
+      "无私"
+    ]
+  },
+  "background_summary": "伊琳娜的青梅竹马，平民学生，最强的防御法师之一。她的隐形透明结界是学院中最强的防御魔法。曾被关押在帝国监狱，后被弗雷通过贿赂释放。",
+  "key_relationships": [
+    {
+      "target": "char_003",
+      "type": "挚友",
+      "intensity": 0.9
+    }
+  ],
+  "status": "alive",
+  "memory_of_protagonist": {}
+}

@@ -69,6 +69,14 @@ class StateExtractor(BaseAgent):
 ### 6. 玩家画像更新 (player_profile_updates)
 - 正常为 null，每 3-5 拍可输出一次。
 
+### 7. 认知冲突变化 (dissonance_changes) 【灵魂附生模式】
+- 检测叙事中 NPC 对主角态度的变化
+- 输出格式: [{"char_id": "char_003", "dissonance_delta": 0.1, "reason": "主角的行为与记忆中不符", "new_phase": "questioning"}]
+
+### 8. 角色认知笔记更新 (scratchpad_updates) 【灵魂附生模式】
+- 检测叙事中值得 NPC 记住的关键互动
+- 输出格式: [{"char_id": "char_003", "content": "弗雷没有砸酒杯", "is_important": true}]
+
 ## 输出 JSON 格式
 
 ```json
@@ -84,7 +92,9 @@ class StateExtractor(BaseAgent):
   "new_dynamic_npcs": [],
   "player_profile_updates": {},
   "narrative_summary": "1-2句话摘要",
-  "scene_memory_entry": "[时间/地点] 关键事实"
+  "scene_memory_entry": "[时间/地点] 关键事实",
+  "dissonance_changes": [],
+  "scratchpad_updates": []
 }
 ```
 
@@ -178,35 +188,9 @@ class StateExtractor(BaseAgent):
 
         return "\n".join(lines)
 
-    async def run(self, input_data: dict) -> dict:
-        sys = str(input_data.get("system_prompt", "") or "") or self.build_system_prompt()
-        usr = self.build_user_prompt(input_data)
 
-        self._log_info("→ 提取状态变更...")
-        log_layer("L4a", f"StateExtractor 启动 — {len(input_data.get('character_outputs', []))} 角色输出")
-
-        result = await self._call_llm(sys, usr, {"json_mode": True, "temperature": 0.2, "max_tokens": 2048})
-
-        if not result.get("ok", False):
-            return {"ok": False, "content": "", "raw": {}, "error": result.get("error", "LLM call failed")}
-
-        parsed = self._parse_json_response(result)
-        if parsed.get("error", ""):
-            return {"ok": False, "content": result.get("content", ""), "raw": {},
-                    "error": "JSON parse failed: " + str(parsed.get("error", ""))}
-
-        data: dict = parsed.get("data", {}) or {}
-        self._ensure_defaults(data)
-
-        validation = MananaSchema.validate_extractor_output(data)
-        if not validation.get("valid", False):
-            self._log_warn(f"输出验证警告: {validation.get('errors', [])}")
-
-        changes_summary = self._summarize_changes(data)
-        self._log_info(f"→ {changes_summary}")
-        log_layer("L4a", f"StateExtractor 完成 — {changes_summary}")
-
-        return {"ok": True, "content": result.get("content", ""), "raw": data}
+    def _get_llm_options(self, input_data: dict) -> dict:
+        return {"json_mode": True, "temperature": 0.2, "max_tokens": 2048}
 
     def _ensure_defaults(self, data: dict) -> None:
         defaults: dict[str, Any] = {
@@ -253,7 +237,7 @@ class StateExtractor(BaseAgent):
 
 
 # ============================================================
-# v4: PlanScorerAgent (Best-of-3)
+# v4: PlanScorerAgent (Best-of-N)
 # ============================================================
 
 

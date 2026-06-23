@@ -1,11 +1,12 @@
 /**
- * app.js — Rain Web 前端入口
+ * app.js — Rain Web 前端入口（精简版）
  *
  * 全局应用状态 + 事件总线 + 初始化 + 模块导入编排
  * + 小说选择流程状态机
  *
- * 架构: 单例 AppState 模式 — 所有模块通过 App.state 共享状态，
- *       通过 App.on/App.emit 松耦合通信。
+ * 架构: 单例 App 模式 — 所有模块通过 App 共享状态，
+ *       通过 bus.on/bus.emit 松耦合通信。
+ *       AppState 和 EventBus 已拆至 stores/ 目录。
  *
  * 面板快捷键:
  *   F1 → 剧情    F2 → 世界观    F3 → 角色    F4 → 地点
@@ -13,7 +14,7 @@
  */
 
 // ═══════════════════════════════════════════════════════
-// 导入所有模块
+// 导入
 // ═══════════════════════════════════════════════════════
 
 import { WSClient } from './ws-client.js';
@@ -29,143 +30,56 @@ import { SaveUIRenderer } from './save-ui.js';
 import { ChoicePanel } from './choices.js';
 import { PipelineStatusBar } from './pipeline-status.js';
 import { ThreadsRenderer } from './threads.js';
-import { UnifiedFSM } from './fsm.js';
+import { RelationNetwork } from './relation-network.js';
+import { CharacterSelector } from './soul/character-selector.js';
+import { SoulPanel } from './soul/soul-panel.js';
+import { NPCCognitionPanel } from './soul/npc-cognition-panel.js';
+
+// 灵魂附生模块（按需动态 import）
+let SoulChoiceRenderer;
 import { SettingsUI } from './settings-ui.js';
+import { state } from './stores/AppState.js';
+import { bus } from './stores/EventBus.js';
 
 // ═══════════════════════════════════════════════════════
-// 全局应用状态
+// 全局单例 App — 向后兼容 facade
 // ═══════════════════════════════════════════════════════
 
-class AppState {
-  constructor() {
-    /** @type {Object} 全局游戏状态 */
-    this.state = {
-      sessionId: '',
-      activePanel: 'narrative',
-      beatCount: 0,
-      deviation: 0.0,
-      isTyping: false,
-      isConnected: false,
-      isChoosing: false,
-      gameTime: '初始',
-      playerLocation: '',
-      charactersState: {},
-      eventLog: [],
-      actionHints: [],
-      canonReady: false,
-      novelTitle: '',
-      worldRules: {},
-      canonMeta: {},
-      canonSource: 'initial',
+/**
+ * App 是 state + bus + 模块实例的合并单例。
+ * 旧模块 import { App } from './app.js' 无需改动。
+ */
+const App = {
+  // ── 状态委托 ──
+  get state() { return state.state; },
+  get fsm() { return state.fsm; },
+  setPhase: (phase, s) => state.setPhase(phase, s),
 
-      // ── UI 显示模式 ──
-      statusDisplayMode: 'bubbles',  // 'bubbles' | 'label'
+  // ── 模块实例（由 init() 填充） ──
+  ws: null, panels: null, deviation: null, input: null,
+  narrative: null, characters: null, worldRules: null,
+  locations: null, log: null, saveUI: null, choices: null,
+  pipelineStatus: null, threads: null, relationNetwork: null, charSelector: null,
+  soulPanel: null, npcCognition: null,
 
-      // ── 新增：游戏阶段状态 ──
-      gamePhase: 'awaiting_start',     // 'awaiting_start' | 'generating' | 'playing'
+  // ── 事件总线委托 ──
+  on: (event, fn) => bus.on(event, fn),
+  emit: (event, data) => bus.emit(event, data),
+  off: (event, fn) => bus.off(event, fn),
+  emit: (event, data) => bus.emit(event, data),
+};
 
-      // ── 新增：小说选择流程状态 ──
-      novelSelectPhase: 'idle',       // 'idle' | 'scanning' | 'list_received' | 'confirming'
-                                      // | 'selecting' | 'generating' | 'ready'
-      generationStartTime: null,      // Date.now() 生成开始时间
-      generationTimerId: null,        // 120s 超时定时器 ID
-      generationElapsedInterval: null, // 每秒更新已用时的 interval ID
-      hasExistingCanon: false,        // 是否存在已生成的 canon
-      availableTxtFiles: [],          // novel/ 下的 .txt 列表
-      availableCanons: [],            // novel/ 下的 canon_*.json 列表
-      isMidGame: false,               // 游戏中禁止切换（beatCount > 0）
-      selectedCanonFile: '',          // 当前选中的 canon 文件路径
-    };
+export { App };
 
-    /** @type {UnifiedFSM} 统一状态机（与旧 state 双写同步） */
-    this.fsm = new UnifiedFSM();
-
-    /** @type {Object<string,Function[]>} 事件总线 */
-    this._listeners = {};
-
-    // 模块实例（初始化后设置）
-    this.ws = null;
-    this.panels = null;
-    this.deviation = null;
-    this.input = null;
-    this.narrative = null;
-    this.characters = null;
-    this.worldRules = null;
-    this.locations = null;
-    this.log = null;
-    this.saveUI = null;
-  }
-
-  /**
-   * 设置游戏阶段（双写同步：App.state + App.fsm）
-   * @param {'novel_select'|'narrative'|'error'} phase 主阶段
-   * @param {string} state 子状态
-   * @returns {boolean} 是否转换成功
-   */
-  setPhase(phase, state) {
-    // 同状态直接返回，避免自转换和重复事件
-    if (this.fsm.phase === phase && this.fsm.state === state) {
-      return true;
-    }
-    // 先检查 FSM 是否允许此转换
-    if (!this.fsm.canTransition(phase, state)) {
-      console.warn(
-        `[App] setPhase: 非法转换 ${this.fsm.phase}.${this.fsm.state} → ${phase}.${state}，已忽略`,
-      );
-      return false;
-    }
-    // 1. 更新旧 App.state 兼容
-    switch (phase) {
-      case 'narrative':
-        this.state.gamePhase = state;
-        this.state.novelSelectPhase = 'idle';
-        break;
-      case 'novel_select':
-        this.state.novelSelectPhase = state;
-        this.state.gamePhase = 'awaiting_start';
-        break;
-      case 'error':
-        this.state.novelSelectPhase = 'error';
-        this.state.gamePhase = 'awaiting_start';
-        break;
-    }
-    // 2. 更新新 FSM
-    this.fsm.transition(phase, state);
-    return true;
-  }
-
-  /**
-   * 注册事件监听
-   * @param {string} event
-   * @param {Function} fn
-   */
-  on(event, fn) {
-    if (!this._listeners[event]) this._listeners[event] = [];
-    this._listeners[event].push(fn);
-  }
-
-  /**
-   * 触发事件
-   * @param {string} event
-   * @param {*} data
-   */
-  emit(event, data) {
-    const fns = this._listeners[event] || [];
-    for (const fn of fns) {
-      try { fn(data); } catch (e) { console.error(`[App] 事件 "${event}" 出错:`, e); }
-    }
-  }
-}
-
-/** 全局单例 */
-export const App = new AppState();
+// ★★★ 暴露全局 App 供非模块脚本访问（dashboard.js, game-info-bar.js 等）★★★
+window.App = App;
 
 // ═══════════════════════════════════════════════════════
 // 初始化
 // ═══════════════════════════════════════════════════════
 
 function init() {
-  console.log('[App] Rain Web 初始化...');
+  console.log('[App] 小说模拟器 初始化...');
 
   // 创建模块实例
   App.ws = new WSClient();
@@ -181,6 +95,10 @@ function init() {
   App.choices = new ChoicePanel();
   App.pipelineStatus = new PipelineStatusBar();
   App.threads = new ThreadsRenderer();
+  App.relationNetwork = new RelationNetwork();
+  App.charSelector = new CharacterSelector();
+  App.soulPanel = new SoulPanel();
+  App.npcCognition = new NPCCognitionPanel();
 
   // 初始化各模块
   App.panels.init();
@@ -194,6 +112,9 @@ function init() {
   App.saveUI.init();
   App.choices.init();
   App.pipelineStatus.init();
+  App.charSelector.init();
+  App.soulPanel.init();
+  App.npcCognition.init();
 
   // ── agent_status → 驱动管线进度条 + 气泡 ──
   App.on('agent_status', (payload) => {
@@ -207,6 +128,9 @@ function init() {
   });
 
   App.threads.init();
+
+  // 初始化关系网（惰性，等待数据触发）
+  App.relationNetwork.init();
 
   // 连接 WebSocket
   App.ws.connect();
@@ -223,18 +147,68 @@ function init() {
   // 初始化刷新防护（拦截 F5/Ctrl+R，发送中止）
   _initRefreshGuard();
 
+  // ── "开始冒险"按钮（支持首次启动 + 中止后继续）──
+  const startBtn = document.getElementById('startGameBtn');
+  if (startBtn) {
+    startBtn.addEventListener('click', () => {
+      startBtn.disabled = true;
+      if (App.state.beatCount > 0) {
+        // ★ 游戏已开始 → 从中止处继续生成
+        startBtn.textContent = '继续中...';
+        App.setPhase('narrative', 'generating');
+        App.emit('llm_busy', {});
+        App.ws.send('player_action', { text: '' });
+      } else {
+        // 首次启动灵魂附生
+        startBtn.textContent = '启动中...';
+        App.ws.send('request_game_start_soul', {
+          protagonist_id: App.state._selectedProtagonistId || '',
+        });
+      }
+    });
+  }
+
   // 监听配置信息（预填设置面板）
   App.on('config_info', (payload) => {
     if (payload && payload.providers) {
       for (const [tier, cfg] of Object.entries(payload.providers)) {
-        if (cfg.endpoint) {
-          const el = document.querySelector(`[data-field="${tier}-endpoint"]`);
-          if (el) el.value = cfg.endpoint;
+        const card = document.querySelector(`.settings-tier-card[data-tier="${tier}"]`);
+        if (!card) continue;
+
+        // 1. 同步提供者类型
+        const providerType = cfg.type || 'deepseek';
+        card.dataset.providerType = providerType;
+        const sel = document.querySelector(`.settings-provider-select[data-tier="${tier}"]`);
+        if (sel && [...sel.options].some(o => o.value === providerType)) {
+          sel.value = providerType;
         }
-        if (cfg.model) {
-          const el = document.querySelector(`[data-field="${tier}-model"]`);
-          if (el) el.value = cfg.model;
+
+        // 2. 填充各字段
+        if (providerType === 'deepseek') {
+          // DeepSeek: 模型下拉，API 密钥
+          const modelSel = document.querySelector(`.settings-model-deepseek[data-tier="${tier}"] select`);
+          if (modelSel && cfg.model) {
+            if ([...modelSel.options].some(o => o.value === cfg.model)) {
+              modelSel.value = cfg.model;
+            }
+          }
+          if (cfg.api_key != null) {
+            const el = document.querySelector(`[data-field="${tier}-api_key"]`);
+            if (el) el.value = cfg.api_key;
+          }
+        } else {
+          // Ollama: 端点输入，模型输入
+          if (cfg.endpoint) {
+            const el = document.querySelector(`[data-field="${tier}-endpoint"]`);
+            if (el) el.value = cfg.endpoint;
+          }
+          if (cfg.model) {
+            const el = document.querySelector(`[data-field="${tier}-model"]`);
+            if (el) el.value = cfg.model;
+          }
         }
+
+        // 3. 通用字段
         if (cfg.temperature != null) {
           const slider = document.querySelector(`[data-field="${tier}-temperature"]`);
           if (slider) {
@@ -249,21 +223,11 @@ function init() {
         }
       }
     }
-    if (payload.api_key) {
-      const el = document.getElementById('cfgApiKey');
-      if (el) el.value = payload.api_key;
-    }
     // 更新可用模型列表（模型提示已集成在卡片 tag 中）
   });
 
   // ── 新增：canon_list 事件 → 决策分支 ──
   App.on('canon_list', handleCanonList);
-
-  // ── 新增：canon_generation_status 事件 → 更新加载态 ──
-  App.on('canon_generation_status', handleGenerationStatus);
-
-  // ── 新增：canon_generation_failed 事件 → 出错恢复 ──
-  App.on('canon_generation_failed', handleGenerationFailed);
 
   // ── 新增：mid_game_state_changed → 更新标题按钮 ──
   App.on('mid_game_state_changed', (payload) => {
@@ -278,13 +242,26 @@ function init() {
       return;
     }
 
-    // 1. 更新 App.state
+    // 1. 完整同步 App.state（与 _applyStateSync 对齐，确保 dashboard/game-info-bar 可用）
     App.state.beatCount = ws.beat_count || 0;
     App.state.gameTime = ws.game_time || '';
-    App.state.playerLocation = ws.player_location || '';
+    // ★ 位置：如果是 location ID 格式(loc_XXX)，从 characters_state 推断主角位置
+    let playerLoc = ws.player_location || '';
+    if (playerLoc && /^loc_\d+[a-z]?$/i.test(playerLoc)) {
+        const charsState = ws.characters_state || {};
+        const pid = ws.protagonist_id || App.state._selectedProtagonistId || '';
+        if (pid && charsState[pid] && charsState[pid].location) {
+            playerLoc = charsState[pid].location;
+        }
+    }
+    App.state.playerLocation = playerLoc;
     App.state.deviation = ws.divergence || 0;
-    App.state.isMidGame = (ws.beat_count || 0) > 0;
+    App.state.eventLog = ws.event_log || [];
+    App.state.charactersState = ws.characters_state || {};
+    App.state.narrativeThreads = ws.narrative_threads || {};
+    App.state.playerProfile = ws.player_profile || {};
     if (ws.session_id) App.state.sessionId = ws.session_id;
+    if (ws.protagonist_id) App.state._selectedProtagonistId = ws.protagonist_id;
 
     // 更新标题栏
     document.getElementById('beatCount').textContent = App.state.beatCount;
@@ -296,7 +273,7 @@ function init() {
     }
 
     // 2. 恢复叙事区：仅渲染最后一条 event_log（全文）
-    const eventLog = ws.event_log || [];
+    const eventLog = App.state.eventLog;
     if (App.narrative) {
       App.narrative.clear();
       App.narrative.addSystemLine('\u2728 存档已恢复 · 节拍 ' + App.state.beatCount + ' · ' + ws.game_time);
@@ -317,13 +294,18 @@ function init() {
     App.state.isChoosing = false;
     App.setPhase('narrative', 'playing');
 
-    // 5. 显示初始选择（让玩家可以继续）
-    const defaultChoices = [
-      { id: 'continue', text: '继续冒险', hint: '推进剧情发展' },
-      { id: 'look_around', text: '观察周围', hint: '环顾当前场景' },
-      { id: 'talk', text: '与在场角色交谈', hint: '寻找对话机会' },
-    ];
-    App.emit('choices_ready', defaultChoices);
+    // 5. 显示初始选择（灵魂模式）
+    const soulDefaults = {
+      authentic: [
+        { id: 'auth_1', text: '继续冒险', hint: '推进剧情发展', next_scene_hint: '继续冒险' },
+        { id: 'auth_2', text: '主动探索周围', hint: '环顾当前场景', next_scene_hint: '探索周围' },
+      ],
+      conforming: [
+        { id: 'conf_1', text: '保持原主形象', hint: '维持当前身份', next_scene_hint: '保持形象' },
+        { id: 'conf_2', text: '观察情况', hint: '先不贸然行动', next_scene_hint: '观察情况' },
+      ],
+    };
+    App.emit('choices_ready', soulDefaults);
 
     // 6. 更新标题按钮
     updateTitleButton();
@@ -336,6 +318,9 @@ function init() {
     App.state.worldRules = payload.world_rules || {};
     App.state.canonMeta = payload.meta || {};
     App.state.canonSource = payload.source || 'initial';
+    // ★ 存储角色/地点列表供手动模式验证
+    App.state.availableCanonChars = payload.characters || [];
+    App.state.availableCanonLocs = payload.locations || [];
     const titleEl = document.getElementById('titleNovel');
     if (titleEl) {
       if (payload.novel_title) {
@@ -344,18 +329,16 @@ function init() {
         titleEl.textContent = '请选择小说';
       }
     }
-    // 自动隐藏欢迎界面
-    hideWelcome();
-    // 激活叙事面板（确保 #choicePanel 可见）
-    if (App.panels) {
-      App.panels.switchPanel('narrative');
+    // ★ 手动模式：已选定角色后不再重复隐藏欢迎界面和切换面板（避免闪烁）
+    if (App.state.canonSource !== 'manual' || !App.state._selectedProtagonistId) {
+      hideWelcome();
+      if (App.panels) {
+        App.panels.switchPanel('narrative');
+      }
     }
-    // 清除加载态
-    clearGenerationLoading();
-    // 设置游戏阶段为等待开始
-    App.setPhase('narrative', 'awaiting_start');
-    // 显示"开始冒险"按钮
-    showStartButton();
+    // 设置游戏阶段为灵魂附生等待中
+    App.setPhase('novel_select', 'ready');
+    // 角色选择器已自动监听 canon_ready → 请求角色列表 → 显示选择界面
     // 更新标题按钮
     updateTitleButton();
   });
@@ -367,42 +350,138 @@ function init() {
     }
   });
 
-  // ── Choice System: narrative_complete → 转发 choices ──
+  // ── Choice System: narrative_complete → 转发灵魂选择 ──
   App.on('narrative_complete', (payload) => {
-    // 无论有无 choices，生成结束后都隐藏中止按钮
     hideAbortButton();
-    showStartButton();
 
-    if (payload && payload.choices && Array.isArray(payload.choices) && payload.choices.length > 0) {
+    // 灵魂附生模式：显示本我/贴合选择
+    if (payload && payload.needs_soul_choice) {
       App.state.isChoosing = true;
-      App.emit('choices_ready', payload.choices);
-    } else {
-      // 没有 choices 时也清除选择状态
-      App.state.isChoosing = false;
+      if (App.choices && App.choices.renderSoulChoice) {
+        // 存储 action choices 供二级渲染使用
+        const sd = payload.soul_decision || {};
+        App.choices._currentActionChoices = {
+          authentic: sd.authentic || [],
+          conforming: sd.conforming || [],
+        };
+        App.choices._currentBeatId = payload.beat_id || '';
+        App.choices.renderSoulChoice(payload.beat_id || '');
+      }
+      // 更新双魂面板
+      if (payload.soul_state) {
+        App.emit('soul_state_update', payload.soul_state);
+      }
+      // 更新NPC认知状态
+      if (payload.cognitive_dissonance) {
+        App.emit('dissonance_update', payload.cognitive_dissonance);
+      }
+      return;
     }
+
+    // 灵魂附生模式不应收到 choices 字段，仅 soul_decision
+    App.state.isChoosing = false;
+    // auto 模式下回到 playing 状态，允许输入
+    App.setPhase('narrative', 'playing');
   });
 
   // ── 生成中止确认 ──
   App.on('generation_aborted', (payload) => {
-    // 使用 transition() 进行状态转换（确保触发 fsm:change 事件）
-    App.fsm.transition('novel_select', 'ready');
-    App.state.gamePhase = 'awaiting_start';
-    App.state.novelSelectPhase = 'ready';
-    App.state.isMidGame = false;
-    App.state.beatCount = 0;
-    // 保留 session_id（不删除）以支持 WebSocket 重连时恢复会话
-    // 恢复 UI（不回到欢迎界面，保持叙事面板 + 开始按钮）
     hideAbortButton();
     showStartButton();
     if (App.pipelineStatus) {
       App.pipelineStatus.hide();
     }
+    App.state.isChoosing = false;
+    App.setPhase('narrative', 'playing');
     console.log('[App] 生成已中止:', (payload && payload.message) || '');
   });
 
   // ── Choice System: choice_selected → 清除选择状态 ──
   App.on('choice_selected', () => {
     App.state.isChoosing = false;
+  });
+
+  // ═══════════════════════════════════════════════════
+  // 灵魂附生模式
+  // ═══════════════════════════════════════════════════
+
+  // game_started_soul → 进入灵魂附生游戏模式
+  App.on('game_started_soul', (payload) => {
+    App.state.canonReady = true;
+    App.state.isChoosing = false;
+    App.setPhase('narrative', 'playing');
+
+    hideStartButton();
+
+    // 切换到叙事面板
+    if (App.panels) {
+      App.panels.switchPanel('narrative');
+    }
+
+    // 更新标题
+    const titleEl = document.getElementById('titleNovel');
+    if (titleEl && App.state.novelTitle) {
+      titleEl.textContent = '《' + App.state.novelTitle.replace(/【.*?】/g, '') + '》';
+    }
+
+    // 更新双魂面板（如果有 soul_state 数据）
+    if (payload && payload.soul_state) {
+      App.emit('soul_state_update', payload.soul_state);
+    }
+
+    console.log('[App] 灵魂附生游戏启动: 主角=%s', payload.protagonist_id);
+  });
+
+  // character_selected → 角色已选定，显示主界面 + 开始冒险按钮
+  App.on('character_selected', (payload) => {
+    App.state.canonReady = true;
+    App.state._selectedProtagonistId = payload.protagonist_id;
+    App.setPhase('narrative', 'awaiting_start');
+
+    // 切换到叙事面板
+    if (App.panels) {
+      App.panels.switchPanel('narrative');
+    }
+
+    // 更新标题
+    const titleEl = document.getElementById('titleNovel');
+    if (titleEl && App.state.novelTitle) {
+      titleEl.textContent = '《' + App.state.novelTitle.replace(/【.*?】/g, '') + '》';
+    }
+
+    // ★ 显示"开始冒险"按钮（手动模式需额外检查条件）
+    if (App.state.canonSource === 'manual') {
+      updateStartButtonForManual();
+    } else {
+      showStartButton();
+    }
+  });
+
+  // return_to_novel_select — 从角色选择界面返回小说选择
+  App.on('return_to_novel_select', () => {
+    App.state.canonReady = false;
+    // 重新显示欢迎界面
+    showWelcome();
+    App.setPhase('novel_select', 'idle');
+  });
+
+  // ═══════════════════════════════════════════════════
+  // 提供者选择（启动时选模型）
+  // ═══════════════════════════════════════════════════
+
+  // providers_list → 渲染提供者卡片
+  App.on('providers_list', (payload) => {
+    if (payload && payload.providers) {
+      renderProviderCards(payload.providers);
+    }
+  });
+
+  // provider_set → 提供者已确认（F7 设置面板使用）
+  App.on('provider_set', (payload) => {
+    if (payload && payload.success) {
+      App.state.activeProvider = payload.provider;
+      App.state.activeModel = payload.model;
+    }
   });
 
   console.log('[App] 初始化完成');
@@ -431,11 +510,23 @@ function initSettingsPanel() {
   document.querySelectorAll('.settings-sub-menu__btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const page = btn.dataset.page;
-      if (page === 'api') showPage('settingsApiPage');
-      if (page === 'ui') showPage('settingsUiPage');
-      if (page === 'pipeline') {
-        showPage('settingsPipelinePage');
-        document.dispatchEvent(new CustomEvent('settings_page_shown', { detail: { page: 'pipeline' } }));
+      const pageMap = {
+        api: 'settingsApiPage',
+        ui: 'settingsUiPage',
+        pipeline: 'settingsPipelinePage',
+        game: 'settingsGamePage',
+        memory: 'settingsMemoryPage',
+        soul: 'settingsSoulPage',
+        emergence: 'settingsEmergencePage',
+        reflection: 'settingsReflectionPage',
+        reward: 'settingsRewardPage',
+      };
+      const pageId = pageMap[page];
+      if (pageId) {
+        showPage(pageId);
+        if (page === 'pipeline') {
+          document.dispatchEvent(new CustomEvent('settings_page_shown', { detail: { page: 'pipeline' } }));
+        }
       }
     });
   });
@@ -455,6 +546,17 @@ function initSettingsPanel() {
   });
 
   document.querySelectorAll('.settings-field-slider, .settings-form__slider').forEach(slider => {
+    // 用下个兄弟元素显示当前值（如果存在）
+    const hint = slider.nextElementSibling;
+    const updateHint = () => {
+      if (hint && hint.classList.contains('settings-form__hint')) {
+        hint.textContent = parseFloat(slider.value).toFixed(2);
+      }
+    };
+    updateHint();
+    slider.addEventListener('input', updateHint);
+
+    // 兼容旧的温度值标签（保留）
     const tier = slider.dataset.field ? slider.dataset.field.split('-')[0] : '';
     const valEl = document.getElementById(tier + '-temp-val');
     if (valEl) {
@@ -462,6 +564,31 @@ function initSettingsPanel() {
         valEl.textContent = parseFloat(slider.value).toFixed(1);
       });
     }
+  });
+
+  // ── 设置页内开关按钮（reflection/reward 等子页）──
+  document.querySelectorAll('[data-toggle]').forEach(label => {
+    const field = label.dataset.toggle;
+    const checkbox = document.querySelector(`input[data-field="${field}"]`);
+    if (!checkbox) return;
+
+    const updateToggle = () => {
+      if (checkbox.checked) {
+        label.classList.add('settings-tag-btn--active');
+        label.textContent = '\u2713 启用';
+      } else {
+        label.classList.remove('settings-tag-btn--active');
+        label.textContent = '\u2717 禁用';
+      }
+    };
+
+    label.addEventListener('click', () => {
+      checkbox.checked = !checkbox.checked;
+      updateToggle();
+    });
+
+    // 初始状态
+    updateToggle();
   });
 
   // ── UI 设置标签组切换 ──
@@ -475,61 +602,78 @@ function initSettingsPanel() {
     });
   });
 
-  // ── 读取字段值 ──
+  // ════════════════════════════════════════════
+  // API 设置 — 三层独立配置（每层可独立选提供者/端点/模型）
+  // ════════════════════════════════════════════
+
+  // ── 读取单层配置 ──
   function getTierConfig(tier) {
-    const val = (field) => {
+    const providerSelect = document.querySelector(`.settings-provider-select[data-tier="${tier}"]`);
+    const providerType = providerSelect ? providerSelect.value : 'deepseek';
+
+    let endpoint, model, apiKey;
+    if (providerType === 'deepseek') {
+      // DeepSeek: 固定端点，模型从下拉读取
+      endpoint = 'https://api.deepseek.com';
+      const modelSel = document.querySelector(`.settings-model-deepseek[data-tier="${tier}"] select`);
+      model = modelSel ? modelSel.value : '';
+      const apiEl = document.querySelector(`[data-field="${tier}-api_key"]`);
+      apiKey = apiEl ? apiEl.value.trim() : '';
+    } else {
+      // Ollama: 端点从 IP 输入自动补齐，模型从输入框读取
+      const ep = document.querySelector(`[data-field="${tier}-endpoint"]`);
+      endpoint = ep ? ep.value.trim() : '';
+      const modelEl = document.querySelector(`[data-field="${tier}-model"]`);
+      model = modelEl ? modelEl.value.trim() : '';
+      apiKey = '';
+    }
+
+    const valField = (field) => {
       const el = document.querySelector(`[data-field="${tier}-${field}"]`);
       if (!el) return '';
-      if (field === 'endpoint') return normalizeEndpoint(el.value.trim(), 'ollama');
+      if (field === 'temperature') return parseFloat(el.value) || 0.7;
+      if (field === 'max_tokens') return parseInt(el.value) || 2048;
       return el.value.trim();
     };
+
     const config = {
-      type: 'ollama',
-      endpoint: val('endpoint'),
-      model: val('model'),
-      temperature: parseFloat(val('temperature')) || 0.7,
-      max_tokens: parseInt(val('max_tokens')) || 2048,
+      type: providerType,
+      endpoint: endpoint,
+      model: model,
+      temperature: parseFloat(valField('temperature')) || 0.7,
+      max_tokens: parseInt(valField('max_tokens')) || 2048,
       timeout: tier === 'strong' ? 180 : tier === 'medium' ? 120 : 60,
     };
-    // 读取 API 密钥（每个模型独立）
-    const apiKey = val('api_key');
-    if (apiKey) {
-      config.api_key = apiKey;
-    }
+    if (apiKey) config.api_key = apiKey;
     return config;
   }
 
-  // ── 模型卡片独立应用/重置按钮 ──
-  document.querySelectorAll('.settings-tier-card__actions .settings-btn--apply').forEach(btn => {
+  // ── 卡片独立应用按钮 ──
+  document.querySelectorAll('.settings-btn--apply').forEach(btn => {
     btn.addEventListener('click', () => {
       const tier = btn.dataset.tier;
       if (!tier) return;
-
       const config = getTierConfig(tier);
       if (!config.endpoint) {
-        showSettingsStatus(`请填写 ${tier} 模型的 API 端点`, 'error');
+        showApiStatus(`请填写 ${tier} 的 API 端点`, 'error');
         return;
       }
-
+      showApiStatus(`正在应用 ${tier} 层配置...`, 'loading');
       if (App.ws && App.ws.isConnected()) {
-        showSettingsStatus(`正在应用 ${tier} 模型配置...`, 'loading');
-        // 发送单个模型的配置
         App.ws.send('update_config', { providers: { [tier]: config } });
       } else {
-        showSettingsStatus('未连接到服务器，无法应用配置', 'error');
+        showApiStatus('未连接到服务器', 'error');
       }
     });
   });
 
-  document.querySelectorAll('.settings-tier-card__actions .settings-btn--reset').forEach(btn => {
+  // ── 卡片独立重置按钮 ──
+  document.querySelectorAll('.settings-btn--reset').forEach(btn => {
     btn.addEventListener('click', () => {
       const tier = btn.dataset.tier;
       if (!tier) return;
-
-      // 重置该模型卡片的字段
       const card = document.querySelector(`.settings-tier-card[data-tier="${tier}"]`);
       if (!card) return;
-
       card.querySelectorAll('.settings-field-input').forEach(el => {
         if (el.type === 'number') el.value = '';
         else el.value = '';
@@ -539,81 +683,231 @@ function initSettingsPanel() {
         const valEl = document.getElementById(tier + '-temp-val');
         if (valEl) valEl.textContent = parseFloat(s.value).toFixed(1);
       });
-
-      showSettingsStatus(`已重置 ${tier} 模型为默认值`, 'success');
+      showApiStatus(`已重置 ${tier} 层`, 'success');
     });
   });
 
-  // ── 端点输入自动补全（blur 时触发）──
-  document.querySelectorAll('[data-field$="-endpoint"]').forEach(input => {
+  // ── 提供者选择 → 切换字段显隐 + 自动填入 ──
+  document.querySelectorAll('.settings-provider-select').forEach(sel => {
+    sel.addEventListener('change', () => {
+      const tier = sel.dataset.tier;
+      if (!tier) return;
+      const provider = sel.value;
+      const card = document.querySelector(`.settings-tier-card[data-tier="${tier}"]`);
+      if (!card) return;
+
+      // 更新卡片 dataset —— CSS 根据此属性切换字段显隐
+      card.dataset.providerType = provider;
+
+      if (provider === 'deepseek') {
+        // DeepSeek: 默认端点固定，不清除用户可能已填的 api_key
+        const endpointInput = document.querySelector(`[data-field="${tier}-endpoint"]`);
+        if (endpointInput) endpointInput.value = '';
+      } else {
+        // Ollama: 清空 api_key，保留可能已填的 IP
+        const apiKeyInput = document.querySelector(`[data-field="${tier}-api_key"]`);
+        if (apiKeyInput) apiKeyInput.value = '';
+      }
+    });
+  });
+
+  // ── Ollama 端点输入：离开焦点时自动补齐 http:// + :11434 ──
+  document.querySelectorAll('.settings-field-endpoint input').forEach(input => {
     input.addEventListener('blur', () => {
       const raw = input.value.trim();
       if (!raw) return;
-      // Ollama 类型：自动加 http:// + 默认端口 11434
-      input.value = normalizeEndpoint(raw, 'ollama');
+      let ep = raw;
+      // 已有完整协议则不处理
+      if (!/^https?:\/\//i.test(ep)) {
+        ep = 'http://' + ep;
+      }
+      // 已有端口则不重复追加
+      if (!/:\d+/.test(ep)) {
+        ep += ':11434';
+      }
+      input.value = ep;
     });
   });
 
-  // ── 读取字段值（发送前再次归一化端点）──
-  function getEndpoint(tier) {
-    const el = document.querySelector(`[data-field="${tier}-endpoint"]`);
-    return el ? normalizeEndpoint(el.value.trim(), 'ollama') : '';
-  }
+  // ── DeepSeek 模型下拉同步 ──
+  document.querySelectorAll('.settings-model-deepseek select').forEach(sel => {
+    sel.addEventListener('change', () => {
+      // 选中的值即模型名，getTierConfig 直接读取该 select
+    });
+  });
 
-  // ── 应用按钮：发送三模型配置 ──
-  if (btnApply) {
-    btnApply.addEventListener('click', () => {
-      const apiKey = document.getElementById('cfgApiKey').value.trim();
-      const configs = {
-        strong: getTierConfig('strong'),
-        medium: getTierConfig('medium'),
-        light: getTierConfig('light'),
-      };
-      // 统一注入 api_key
-      if (apiKey) {
-        configs.strong.api_key = apiKey;
-        configs.medium.api_key = apiKey;
-        configs.light.api_key = apiKey;
-      }
+  // ── 查询可用模型（每层独立） ──
+  document.querySelectorAll('.settings-fetch-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const tier = btn.dataset.tier;
+      if (!tier) return;
 
-      const hasEndpoint = configs.strong.endpoint || configs.medium.endpoint || configs.light.endpoint;
-      if (!hasEndpoint) {
-        showSettingsStatus('请至少填写一个 API 端点', 'error');
+      const endpoint = document.querySelector(`[data-field="${tier}-endpoint"]`);
+      const apiKey = document.querySelector(`[data-field="${tier}-api_key"]`);
+      const modelInput = document.querySelector(`[data-field="${tier}-model"]`);
+      const modelSelect = document.getElementById(`${tier}-model-select`);
+
+      if (!endpoint || !endpoint.value.trim()) {
+        showApiStatus(`请先填写 ${tier} 层的 API 端点`, 'error');
         return;
       }
 
+      // 从卡片读取真正的提供者类型
+      const card = document.querySelector(`.settings-tier-card[data-tier="${tier}"]`);
+      const type = card ? (card.dataset.providerType || 'deepseek') : 'deepseek';
+
+      btn.disabled = true;
+      btn.textContent = '⌛';
+      if (modelSelect) {
+        modelSelect.style.display = 'block';
+        modelSelect.innerHTML = '<option value="">请求中...</option>';
+      }
+
       if (App.ws && App.ws.isConnected()) {
-        showSettingsStatus('正在应用配置...', 'loading');
-        App.ws.send('update_config', { providers: configs, api_key: apiKey });
-      } else {
-        showSettingsStatus('未连接到服务器，无法应用配置', 'error');
+        // 临时存储 tier 上下文，model_list 回调中读取
+        App.state._fetchModelsTier = tier;
+        App.ws.send('fetch_models', {
+          type: type,
+          endpoint: endpoint.value.trim(),
+          api_key: apiKey ? apiKey.value.trim() : '',
+        });
       }
     });
+  });
+
+  // ── model_list 事件（合并两个上下文：F7 设置面板 + Provider 配置弹窗）──
+  App.on('model_list', (payload) => {
+    // 上下文 A：F7 设置面板的 tier 模型下拉
+    const tier = App.state && App.state._fetchModelsTier;
+    if (tier) {
+
+    const modelSelect = document.getElementById(`${tier}-model-select`);
+    const modelInput = document.querySelector(`[data-field="${tier}-model"]`);
+    const fetchBtn = document.querySelector(`.settings-fetch-btn[data-tier="${tier}"]`);
+
+    if (!modelSelect) return;
+
+    // 统一转小写：部分 API（如 DeepSeek）返回的模型名带大写但只接受小写
+    const models = (payload.models || []).map(m => m.toLowerCase());
+    const error = payload.error || '';
+
+    if (error) {
+      modelSelect.innerHTML = `<option value="">查询失败: ${error}</option>`;
+      if (fetchBtn) { fetchBtn.disabled = false; fetchBtn.textContent = '🔄'; }
+      return;
+    }
+
+    if (models.length === 0) {
+      modelSelect.innerHTML = '<option value="">未找到模型</option>';
+      if (fetchBtn) { fetchBtn.disabled = false; fetchBtn.textContent = '🔄'; }
+      return;
+    }
+
+    modelSelect.innerHTML = '<option value="">— 选择模型 —</option>'
+      + models.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
+
+    modelSelect.addEventListener('change', () => {
+      if (modelSelect.value && modelInput) {
+        modelInput.value = modelSelect.value;
+      }
+    });
+
+    // 保持按钮可点击（记录模型数量但不禁用）
+    if (fetchBtn) {
+      fetchBtn.disabled = false;
+      fetchBtn.textContent = `📋 ${models.length}`;
+    }
+    return;
   }
 
-  // ── 重置按钮 ──
-  if (btnReset) {
-    btnReset.addEventListener('click', () => {
-      // 新卡片字段
-      document.querySelectorAll('.settings-field-input, .settings-form__input').forEach(el => {
-        if (el.type === 'number') el.value = '';
-        else el.value = '';
-      });
-      // 滑块
-      document.querySelectorAll('.settings-field-slider, .settings-form__slider').forEach(s => {
-        s.value = s.dataset.field && s.dataset.field.includes('light') ? '0.5' : '0.7';
-        const tier = s.dataset.field ? s.dataset.field.split('-')[0] : '';
-        const valEl = document.getElementById(tier + '-temp-val');
-        if (valEl) valEl.textContent = parseFloat(s.value).toFixed(1);
-      });
-      document.getElementById('cfgApiKey').value = '';
-      showSettingsStatus('已重置为默认值', 'success');
-    });
+    // 上下文 B：Provider 配置弹窗的模型下拉
+    {
+      const select = window.__providerModelSelect;
+      const custom = window.__providerModelCustom;
+      const confirmBtn = window.__providerConfirmBtn;
+      const fetchBtn = window.__providerFetchBtn;
+      if (!select) return;
+
+      // 统一转小写：部分 API（如 DeepSeek）返回的模型名带大写但只接受小写
+      const models = (payload.models || []).map(m => m.toLowerCase());
+      const error = payload.error || '';
+
+      if (error) {
+        select.innerHTML = `<option value="">查询失败: ${error}</option>`;
+        select.style.display = 'none';
+        custom.style.display = 'block';
+        custom.placeholder = '手动输入模型名称';
+        if (fetchBtn) {
+          fetchBtn.disabled = false;
+          fetchBtn.textContent = '🔄 重试';
+        }
+        return;
+      }
+
+      if (models.length === 0) {
+        select.innerHTML = '<option value="">未找到可用模型，请手动输入</option>';
+        custom.style.display = 'block';
+        custom.placeholder = '手动输入模型名称 (如 qwen3.5:9b)';
+        if (confirmBtn) confirmBtn.disabled = false;
+        return;
+      }
+
+      const defaultForType = {
+        deepseek: 'deepseek-v4-flash',
+        ollama: 'llama3.1:8b',
+      };
+      const defaultModel = defaultForType[window.__provType] || '';
+
+      select.innerHTML = models.map(m =>
+        `<option value="${escapeHtml(m)}" ${m === defaultModel ? 'selected' : ''}>${escapeHtml(m)}</option>`
+      ).join('');
+
+      select.style.display = 'block';
+      custom.style.display = 'none';
+
+      if (confirmBtn) {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = '✅ 确认，开始探索';
+      }
+      if (fetchBtn) {
+        fetchBtn.textContent = `✅ ${models.length} 个模型可用`;
+      }
+    }
+  });
+
+  // ── 端点输入自动补全：已迁移至 .settings-field-endpoint 独有 blur 处理器
+  //     (见上方「Ollama 端点输入：离开焦点时自动补齐 http:// + :11434」)
+
+  function showApiStatus(msg, type) {
+    const el = document.getElementById('settingsApiStatus');
+    if (!el) return;
+    el.textContent = msg;
+    el.style.color = type === 'error' ? '#f87171' : type === 'success' ? '#4ade80' : 'var(--text-muted)';
+    if (type !== 'loading') {
+      setTimeout(() => { el.textContent = ''; }, 3000);
+    }
   }
+
+  // ── 温度 slider 实时更新 ──
+  document.querySelectorAll('.settings-field-slider, .settings-form__slider').forEach(slider => {
+    const tier = slider.dataset.field ? slider.dataset.field.split('-')[0] : '';
+    const valEl = document.getElementById(tier + '-temp-val');
+    if (valEl && !slider._listenerAttached) {
+      slider._listenerAttached = true;
+      slider.addEventListener('input', () => {
+        valEl.textContent = parseFloat(slider.value).toFixed(1);
+      });
+    }
+  });
 
   // ── 配置应用成功 ──
   App.on('config_updated', (payload) => {
-    showSettingsStatus('✅ 配置已应用' + (payload && payload.note ? ' · ' + payload.note : ''), 'success');
+    const statusEl = document.getElementById('settingsApiStatus');
+    if (statusEl) {
+      statusEl.textContent = '✅ 配置已应用' + (payload && payload.note ? ' · ' + payload.note : '');
+      statusEl.style.color = '#4ade80';
+      setTimeout(() => { statusEl.textContent = ''; }, 3000);
+    }
   });
 
   // ── 监听通用错误事件 ──
@@ -627,24 +921,31 @@ function initSettingsPanel() {
       return;
     }
 
-    // Pipeline 未初始化 → 引导用户检查 API 配置
+    // Pipeline 执行失败 → 恢复 UI 状态，允许重试
     if (code === 'PIPELINE_FAILED') {
-      console.error('[App] Pipeline 初始化失败:', message);
-      alert('❌ Pipeline 初始化失败\n\n' + message + '\n\n请检查 F7 设置面板中的 API 配置是否正确。');
-      // 显示设置面板
-      const settingsPanel = document.getElementById('panel-settings');
-      if (settingsPanel && App.panels) {
-        App.panels.switchPanel('settings');
-        // 直接打开 API 设置页（跳过子菜单）
-        document.querySelectorAll('#panel-settings .settings-page').forEach(p => p.classList.remove('settings-page--active'));
-        const apiPage = document.getElementById('settingsApiPage');
-        if (apiPage) apiPage.classList.add('settings-page--active');
-      }
+      console.error('[App] Pipeline 执行失败:', message);
+      // 恢复 FSM 状态（同 generation_aborted）
+      App.setPhase('novel_select', 'ready');
+      App.state.isChoosing = false;
+      App.state.beatCount = 0;
+
+      hideAbortButton();
+      showStartButton();
+      if (App.pipelineStatus) App.pipelineStatus.hide();
+
+      showErrorToast('❌ ' + message + '\n请检查 API 配置后重试');
       return;
     }
 
     // 生成相关错误 → 清除加载态
     if (code === 'CANON_FAILED' || code === 'INTERNAL_ERROR') {
+      // 如果正在叙事中，恢复 UI 允许继续
+      if (App.state.phase === 'narrative') {
+        hideAbortButton();
+        if (App.pipelineStatus) App.pipelineStatus.hide();
+        App.state.isChoosing = false;
+        App.setPhase('narrative', 'playing');
+      }
       App.emit('canon_generation_failed', {
         message: message || '服务器内部错误，请重试',
       });
@@ -710,27 +1011,17 @@ function initWelcomeOverlay() {
     showWelcome();
   });
 
-  // ── 文件上传 ──
-  const fileInput = document.getElementById('welcomeFileInput');
-  const uploadBtn = document.querySelector('.welcome-upload-btn');
-  if (uploadBtn && fileInput) {
-    uploadBtn.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', async () => {
-      const file = fileInput.files[0];
-      if (!file) return;
-      const text = await file.text();
-      showSettingsStatus('正在导入小说...', 'loading');
-      if (App.ws && App.ws.isConnected()) {
-        startGenerationLoading();
-        App.ws.send('upload_novel', { filename: file.name, content: text });
-      }
-    });
-  }
-
   // ── 保留已有按钮 ──
   const btnKeep = document.getElementById('btnKeepCanon');
   if (btnKeep) {
     btnKeep.addEventListener('click', () => {
+      // ★ 运行 Canon（手动创建模式）：通过标题加载
+      if (App.state.selectedCanonType === 'running' && App.state.selectedCanonTitle) {
+        App.ws.send('load_running_canon', {
+          title: App.state.selectedCanonTitle,
+        });
+        return;
+      }
       const sourceFile = App.state.selectedCanonFile;
       if (!sourceFile) {
         // 没有选中 canon，选第一个
@@ -744,31 +1035,6 @@ function initWelcomeOverlay() {
         });
       }
     });
-  }
-
-  // ── 重新生成按钮 ──
-  const btnRegenerate = document.getElementById('btnRegenerateCanon');
-  if (btnRegenerate) {
-    btnRegenerate.addEventListener('click', () => {
-      startGenerationLoading();
-      // 如果有 .txt 文件，使用第一个；否则发送空，后端处理
-      const txtPath = App.state.availableTxtFiles.length > 0
-        ? App.state.availableTxtFiles[0].path
-        : '';
-      App.ws.send('regenerate_canon', { txt_path: txtPath });
-    });
-  }
-
-  // ── 跳过小说选择按钮（确认弹窗中） ──
-  const btnSkip = document.getElementById('btnSkipNovel');
-  if (btnSkip) {
-    btnSkip.addEventListener('click', enterEmptyState);
-  }
-
-  // ── 跳过小说选择按钮（选择界面中） ──
-  const btnSkip2 = document.getElementById('btnSkipNovel2');
-  if (btnSkip2) {
-    btnSkip2.addEventListener('click', enterEmptyState);
   }
 
   // ── 导入 Canon JSON 按钮 ──
@@ -798,16 +1064,59 @@ function initWelcomeOverlay() {
     });
   }
 
-  // ── 初始状态：显示欢迎界面、扫描中 ──
-  App.setPhase('novel_select', 'scanning');
+  // ── 从头创建空白 Canon（两处按钮）──
+  function _setupCreateEmptyBtn(btnId, inputId) {
+    const btn = document.getElementById(btnId);
+    const input = document.getElementById(inputId);
+    if (!btn || !input) return;
+    btn.addEventListener('click', () => {
+      const title = input.value.trim();
+      if (!title) {
+        input.style.borderColor = 'var(--text-red)';
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = '创建中...';
+      if (App.ws && App.ws.isConnected()) {
+        App.ws.send('create_empty_canon', { title: title });
+      }
+    });
+  }
+  _setupCreateEmptyBtn('btnCreateEmpty', 'emptyCanonTitle');
+  _setupCreateEmptyBtn('btnCreateEmpty2', 'emptyCanonTitle2');
+
+  // ── 初始状态：显示欢迎界面 → 开始扫描 ──
+  App.setPhase('novel_select', 'idle');
   const overlay = document.getElementById('welcomeOverlay');
   if (overlay) {
-    overlay.style.display = 'flex';
     overlay.classList.remove('welcome-overlay--hidden');
   }
   hideAllWelcomeSections();
-  const scanning = document.getElementById('initialScanning');
-  if (scanning) scanning.style.display = 'flex';
+
+  // 直接开始扫描（提供者配置由 F7 设置面板管理，不在欢迎界面选择）
+  startScanning();
+  // ws.connect() 稍后执行，经由 ws_connected 事件自动触发 request_canon_list
+
+  // ── 关闭欢迎界面 ──
+  const btnClose = document.getElementById('btnWelcomeClose');
+  if (btnClose) {
+    btnClose.addEventListener('click', () => {
+      hideWelcome();
+    });
+  }
+
+  // ── 刷新（重新扫描 canon 文件）──
+  const btnRefresh = document.getElementById('btnWelcomeRefresh');
+  if (btnRefresh) {
+    btnRefresh.addEventListener('click', () => {
+      hideAllWelcomeSections();
+      App.setPhase('novel_select', 'idle');
+      startScanning();
+      if (App.ws && App.ws.isConnected()) {
+        App.ws.send('request_canon_list', {});
+      }
+    });
+  }
 
   // ── "重新扫描"按钮 ──
   const btnRescan = document.getElementById('btnRescan');
@@ -857,22 +1166,6 @@ function initWelcomeOverlay() {
     App.state.generationTimerId = setTimeout(_scanTimeout, 15000);
   }
   App.state.generationTimerId = setTimeout(_scanTimeout, 15000);
-
-  // ── "开始冒险"按钮 ──
-  const startBtn = document.getElementById('startGameBtn');
-  if (startBtn) {
-    startBtn.addEventListener('click', () => {
-      startBtn.disabled = true;
-      hideStartButton();
-      // 发送空 player_action 启动叙事
-      App.setPhase('narrative', 'generating');
-      App.emit('llm_busy', {});
-      if (App.ws && App.ws.isConnected()) {
-        App.ws.send('player_action', { text: '' });
-        App.emit('player_action_sent', { text: '' });
-      }
-    });
-  }
 
   // ── "中止生成" 按钮（事件委托，独立于 startBtn 存在）──
   document.addEventListener('click', function _abortDelegation(e) {
@@ -1017,9 +1310,9 @@ function handleCanonList(payload) {
   }
 
   // 清除扫描超时定时器
-  if (App.state._scanTimeout) {
-    clearTimeout(App.state._scanTimeout);
-    App.state._scanTimeout = null;
+  if (App.state.generationTimerId) {
+    clearTimeout(App.state.generationTimerId);
+    App.state.generationTimerId = null;
   }
 
   App.state.selectedCanonFile = '';
@@ -1041,9 +1334,14 @@ function handleCanonList(payload) {
     // 有 canon → 确认弹窗
     showConfirmDialog(App.state.availableCanons);
   } else {
-    // 无 canon → 选择界面
-    showNovelSelector(App.state.availableTxtFiles);
+    // 无 canon → 显示导入引导
+    App.setPhase('novel_select', 'selecting');
+    const selector = document.getElementById('novelSelector');
+    if (selector) selector.style.display = 'block';
   }
+  // ★ 始终显示"从头创建"入口
+  const createSection = document.getElementById('createEmptySection');
+  if (createSection) createSection.style.display = 'block';
 
   // 如果扫描结果为空，显示重新扫描按钮
   const hasAny = (payload.txt_files && payload.txt_files.length > 0) ||
@@ -1051,6 +1349,9 @@ function handleCanonList(payload) {
   if (!hasAny && btnRescan) {
     btnRescan.style.display = 'inline-block';
   }
+  // 显示刷新按钮
+  const btnRefresh = document.getElementById('btnWelcomeRefresh');
+  if (btnRefresh) btnRefresh.style.display = 'inline-block';
 }
 
 /**
@@ -1066,231 +1367,51 @@ function showConfirmDialog(canons) {
   if (!dialog || !list) return;
   dialog.style.display = 'block';
 
-  // 清空并重建列表
+  // ★ 合并 running canons（手动创建的小说）
+  const runningCanons = App.state.availableRunningCanons || [];
+  const allItems = [
+    ...canons.map(c => ({ ...c, _type: 'canon' })),
+    ...runningCanons.map(c => ({ ...c, _type: 'running' })),
+  ];
+
   list.innerHTML = '';
 
-  if (canons.length === 0) {
+  if (allItems.length === 0) {
     list.innerHTML = '<p style="color:#8b949e;font-size:13px;">无世界观数据</p>';
     return;
   }
 
-  canons.forEach((canon, index) => {
-    const item = document.createElement('div');
-    item.className = 'confirm-canon-item';
+  allItems.forEach((item, index) => {
+    const card = document.createElement('div');
+    card.className = 'confirm-canon-item';
     if (index === 0) {
-      item.classList.add('confirm-canon-item--selected');
-      App.state.selectedCanonFile = canon.source_file;
+      card.classList.add('confirm-canon-item--selected');
+      App.state.selectedCanonFile = item._type === 'running' ? null : item.source_file;
+      App.state.selectedCanonTitle = item.title;
+      App.state.selectedCanonType = item._type;
     }
 
     const metaParts = [];
-    if (canon.char_count !== undefined) metaParts.push(canon.char_count + ' 角色');
-    if (canon.loc_count !== undefined) metaParts.push(canon.loc_count + ' 地点');
-    if (canon.generated_at) {
-      try {
-        const d = new Date(canon.generated_at);
-        metaParts.push(d.toLocaleString('zh-CN'));
-      } catch (e) {
-        metaParts.push(canon.generated_at);
-      }
-    }
+    if (item.char_count !== undefined) metaParts.push(item.char_count + ' 角色');
+    if (item.loc_count !== undefined) metaParts.push(item.loc_count + ' 地点');
+    if (item._type === 'running') metaParts.push('手动创建');
 
-    item.innerHTML = `
-      <div class="confirm-canon-item__info">
-        <div class="confirm-canon-item__title">${escapeHtml(canon.title || '未命名')}</div>
-        <div class="confirm-canon-item__meta">${metaParts.join(' · ') || canon.source_file}</div>
-      </div>
-      <div class="confirm-canon-item__radio"></div>
-    `;
+    card.innerHTML = `<div class="confirm-canon-item__name">📖 ${item.title}</div>
+      ${metaParts.length ? '<div class="confirm-canon-item__meta">' + metaParts.join(' · ') + '</div>' : ''}`;
 
-    item.addEventListener('click', () => {
-      // 单选逻辑
-      list.querySelectorAll('.confirm-canon-item').forEach(el => el.classList.remove('confirm-canon-item--selected'));
-      item.classList.add('confirm-canon-item--selected');
-      App.state.selectedCanonFile = canon.source_file;
+    card.addEventListener('click', () => {
+      list.querySelectorAll('.confirm-canon-item').forEach(c => c.classList.remove('confirm-canon-item--selected'));
+      card.classList.add('confirm-canon-item--selected');
+      App.state.selectedCanonFile = item._type === 'running' ? null : item.source_file;
+      App.state.selectedCanonTitle = item.title;
+      App.state.selectedCanonType = item._type;
     });
 
-    list.appendChild(item);
+    list.appendChild(card);
   });
+
 }
 
-/**
- * 显示小说选择界面（无 canon 时）
- * @param {Array} txtFiles - .txt 文件列表
- */
-function showNovelSelector(txtFiles) {
-  App.setPhase('novel_select', 'selecting');
-
-  const selector = document.getElementById('novelSelector');
-  if (!selector) return;
-  selector.style.display = 'block';
-
-  // 填充 .txt 文件列表
-  const list = document.getElementById('welcomeNovelList');
-  if (!list) return;
-  list.innerHTML = '';
-
-  if (txtFiles.length === 0) {
-    list.innerHTML = '<p style="color:#8b949e;font-size:13px;padding:8px 0;">暂无本地小说文件，请上传或导入</p>';
-  } else {
-    txtFiles.forEach((file) => {
-      const item = document.createElement('button');
-      item.className = 'welcome-novel-item';
-      const sizeStr = file.size
-        ? (file.size > 1024 * 1024 ? (file.size / 1024 / 1024).toFixed(1) + ' MB' : (file.size / 1024).toFixed(0) + ' KB')
-        : '';
-      item.innerHTML = `
-        <span class="welcome-novel-item__name">📖 ${escapeHtml(file.name)}</span>
-        ${sizeStr ? `<span class="welcome-novel-item__meta">${sizeStr}</span>` : ''}
-      `;
-      item.addEventListener('click', () => {
-        startGenerationLoading();
-        App.ws.send('regenerate_canon', { txt_path: file.path });
-      });
-      list.appendChild(item);
-    });
-  }
-}
-
-/**
- * 开始生成加载态
- */
-function startGenerationLoading() {
-  App.setPhase('novel_select', 'generating');
-  App.state.generationStartTime = Date.now();
-
-  const loading = document.getElementById('generationLoading');
-  if (!loading) return;
-  loading.style.display = 'flex';
-
-  // 隐藏欢迎卡片内的其他区域
-  const confirmDialog = document.getElementById('confirmDialog');
-  const novelSelector = document.getElementById('novelSelector');
-  const initialScanning = document.getElementById('initialScanning');
-  if (confirmDialog) confirmDialog.style.display = 'none';
-  if (novelSelector) novelSelector.style.display = 'none';
-  if (initialScanning) initialScanning.style.display = 'none';
-
-  // 重置文字
-  const statusText = document.getElementById('generationStatusText');
-  const timerText = document.getElementById('generationTimer');
-  const elapsed = document.getElementById('generationElapsed');
-  if (statusText) statusText.textContent = '正在分析小说角色...';
-  if (timerText) timerText.style.display = 'none';
-  if (elapsed) elapsed.textContent = '0';
-
-  // 清除旧的定时器
-  clearGenerationTimers();
-
-  // 120s 超时提示
-  App.state.generationTimerId = setTimeout(() => {
-    const timer = document.getElementById('generationTimer');
-    if (timer) timer.style.display = 'block';
-  }, 120000);
-
-  // 每秒更新已用时间
-  App.state.generationElapsedInterval = setInterval(() => {
-    const el = document.getElementById('generationElapsed');
-    if (el && App.state.generationStartTime) {
-      const secs = Math.floor((Date.now() - App.state.generationStartTime) / 1000);
-      el.textContent = String(secs);
-    }
-  }, 1000);
-}
-
-/**
- * 清除生成加载态
- */
-function clearGenerationLoading() {
-  App.setPhase('novel_select', App.state.canonReady ? 'ready' : 'idle');
-
-  const loading = document.getElementById('generationLoading');
-  if (loading) loading.style.display = 'none';
-
-  clearGenerationTimers();
-}
-
-/**
- * 清除生成相关的定时器
- */
-function clearGenerationTimers() {
-  if (App.state.generationTimerId) {
-    clearTimeout(App.state.generationTimerId);
-    App.state.generationTimerId = null;
-  }
-  if (App.state.generationElapsedInterval) {
-    clearInterval(App.state.generationElapsedInterval);
-    App.state.generationElapsedInterval = null;
-  }
-  App.state.generationStartTime = null;
-}
-
-/**
- * 处理 canon_generation_failed 消息 — 恢复选择界面让用户重试
- * @param {Object} payload
- */
-function handleGenerationFailed(payload) {
-  const message = (payload && payload.message) || '世界观数据生成失败';
-  console.warn('[App] Canon 生成失败:', message);
-
-  // 清除加载态
-  clearGenerationLoading();
-
-  // 显示小说选择界面（包含 .txt 列表 + 上传入口 + 跳过按钮）
-  const overlay = document.getElementById('welcomeOverlay');
-  if (overlay) {
-    overlay.style.display = 'flex';
-  }
-
-  // 显示错误提示在状态文本中
-  const statusText = document.getElementById('generationStatusText');
-  if (statusText) {
-    statusText.textContent = '';
-    statusText.style.display = 'none';
-  }
-
-  // 恢复选择界面
-  hideAllWelcomeSections();
-  const selector = document.getElementById('novelSelector');
-  if (selector) {
-    selector.style.display = 'block';
-    // 如果已有 canon 或 txt 文件，也显示确认弹窗
-    if (App.state.hasExistingCanon && App.state.availableCanons.length > 0) {
-      showConfirmDialog(App.state.availableCanons);
-    } else {
-      showNovelSelector(App.state.availableTxtFiles);
-    }
-  }
-
-  // 显示简短的 toast 提示
-  const toast = document.createElement('div');
-  toast.className = 'welcome-toast';
-  toast.textContent = '❌ ' + message;
-  const card = document.querySelector('.welcome-card');
-  if (card) {
-    card.prepend(toast);
-    setTimeout(() => {
-      if (toast.parentNode) toast.parentNode.removeChild(toast);
-    }, 5000);
-  }
-}
-function handleGenerationStatus(payload) {
-  const status = payload.status || '';
-  const message = payload.message || '';
-
-  // 更新加载态文字
-  const statusText = document.getElementById('generationStatusText');
-  if (statusText && message) {
-    statusText.textContent = message;
-  }
-
-  // 完成或回退
-  if (status === 'completed') {
-    if (statusText) statusText.textContent = '✅ 世界观数据生成完成';
-  } else if (status === 'fallback') {
-    if (statusText) statusText.textContent = '⚠️ ' + message;
-  }
-  // status === 'error' 由 canon_generation_failed 事件处理完整恢复
-}
 
 /**
  * 更新标题栏按钮状态
@@ -1331,7 +1452,7 @@ function updateTitleButton() {
  * 隐藏欢迎界面内所有子区域
  */
 function hideAllWelcomeSections() {
-  const ids = ['confirmDialog', 'novelSelector', 'initialScanning', 'generationLoading'];
+  const ids = ['confirmDialog', 'novelSelector', 'initialScanning', 'createEmptySection'];
   ids.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
@@ -1345,15 +1466,12 @@ function hideAllWelcomeSections() {
 function showWelcome() {
   const overlay = document.getElementById('welcomeOverlay');
   if (!overlay) return;
-  overlay.style.display = 'flex';
   overlay.classList.remove('welcome-overlay--hidden');
 
-  // 如果已连接，重新请求 canon_list
   if (App.ws && App.ws.isConnected()) {
-    App.setPhase('novel_select', 'scanning');
+    App.setPhase('novel_select', 'idle');
     hideAllWelcomeSections();
-    const scanning = document.getElementById('initialScanning');
-    if (scanning) scanning.style.display = 'flex';
+    startScanning();
     App.ws.send('request_canon_list', {});
   }
 }
@@ -1362,29 +1480,182 @@ function hideWelcome() {
   const overlay = document.getElementById('welcomeOverlay');
   if (!overlay) return;
   overlay.classList.add('welcome-overlay--hidden');
-  setTimeout(() => { overlay.style.display = 'none'; }, 350);
+}
+
+/**
+ * 显示非阻塞错误通知 toast
+ * @param {string} msg
+ */
+function showErrorToast(msg) {
+  const existing = document.getElementById('errorToast');
+  if (existing) existing.remove();
+
+  const toast = document.createElement('div');
+  toast.id = 'errorToast';
+  toast.className = 'error-toast';
+  toast.innerHTML = msg.replace(/\n/g, '<br>');
+  document.body.appendChild(toast);
+
+  // 3.5 秒后自动消失
+  setTimeout(() => {
+    toast.classList.add('error-toast--fadeout');
+    setTimeout(() => { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 400);
+  }, 3500);
+}
+
+// ═══════════════════════════════════════════════════════
+// 提供者选择（启动时选模型）
+// ═══════════════════════════════════════════════════════
+
+let _selectedProvider = null;
+let _providerData = {};
+
+/**
+ * 渲染提供者选择卡片
+ */
+function renderProviderCards(providers) {
+  const cards = document.getElementById('providerCards');
+  if (!cards) return;
+
+  const entries = Object.entries(providers);
+  if (entries.length === 0) {
+    cards.innerHTML = `
+      <div class="provider-card" style="cursor:default;opacity:0.6;width:100%;">
+        <div class="provider-card__label">未检测到可用模型配置</div>
+        <div class="provider-card__desc">请在 config.yaml 中添加提供者</div>
+      </div>`;
+    return;
+  }
+
+  _providerData = providers;
+
+  const providerInfo = {
+    deepseek: { icon: '🔷', desc: '云端 API，高性能', tag: '推荐' },
+    ollama: { icon: '🖥️', desc: '本地运行，隐私优先', tag: '本地' },
+  };
+
+  cards.innerHTML = entries.map(([name, cfg]) => {
+    const info = providerInfo[cfg.type] || { icon: '🔌', desc: '', tag: cfg.type };
+    return `
+      <div class="provider-card" data-provider="${name}">
+        <div class="provider-card__icon">${info.icon}</div>
+        <div class="provider-card__name">${escapeHtml(name)}</div>
+        <div class="provider-card__desc">${info.desc}</div>
+        <div class="provider-card__tag">${info.tag}</div>
+      </div>
+    `;
+  }).join('');
+
+  // 绑定选择事件
+  cards.querySelectorAll('.provider-card').forEach(card => {
+    card.addEventListener('click', () => {
+      cards.querySelectorAll('.provider-card').forEach(c => c.classList.remove('provider-card--selected'));
+      card.classList.add('provider-card--selected');
+      _selectedProvider = card.dataset.provider;
+      showProviderConfig(_selectedProvider);
+    });
+  });
+}
+
+/**
+ * 显示提供者配置字段
+ */
+function showProviderConfig(providerName) {
+  const config = document.getElementById('providerConfig');
+  const modelSelect = document.getElementById('providerModelSelect');
+  const modelCustomInput = document.getElementById('providerModelCustom');
+  const fetchBtn = document.getElementById('btnFetchModels');
+  const keyField = document.getElementById('providerKeyField');
+  const keyInput = document.getElementById('providerKeyInput');
+  const confirmBtn = document.getElementById('btnConfirmProvider');
+
+  if (!config) return;
+  config.style.display = 'flex';
+
+  const data = _providerData[providerName] || {};
+  const provType = data.type || '';
+
+  // 显示/隐藏 API 密钥字段
+  if (provType === 'deepseek' && !data.has_key) {
+    keyField.style.display = 'flex';
+    keyInput.placeholder = '输入 DeepSeek API 密钥';
+  } else {
+    keyField.style.display = 'none';
+  }
+
+  // 重置模型选择状态
+  modelSelect.style.display = 'none';
+  modelSelect.innerHTML = '<option value="">查询中...</option>';
+  modelCustomInput.style.display = 'none';
+  modelCustomInput.value = '';
+  fetchBtn.disabled = false;
+  fetchBtn.textContent = '🔍 查询可用模型';
+  confirmBtn.disabled = true;
+  confirmBtn.textContent = '请先选择模型';
+
+  // 移除旧事件绑定
+  const newFetchBtn = fetchBtn.cloneNode(true);
+  fetchBtn.parentNode.replaceChild(newFetchBtn, fetchBtn);
+  const newConfirmBtn = confirmBtn.cloneNode(true);
+  confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+
+  // 查询模型按钮
+  newFetchBtn.addEventListener('click', () => {
+    newFetchBtn.disabled = true;
+    newFetchBtn.textContent = '正在查询...';
+    modelSelect.style.display = 'block';
+    modelSelect.innerHTML = '<option value="">请求中...</option>';
+
+    const enteredKey = keyInput ? keyInput.value.trim() : '';
+    if (App.ws && App.ws.isConnected()) {
+      App.ws.send('fetch_models', {
+        type: provType,
+        endpoint: data.endpoint || '',
+        api_key: enteredKey || data.api_key || '',
+      });
+    }
+  });
+
+  // 确认按钮（绑定在 model_list 回调之后设置）
+  newConfirmBtn.addEventListener('click', () => {
+    const model = modelSelect.style.display !== 'none' && modelSelect.value
+      ? modelSelect.value
+      : modelCustomInput.value.trim();
+    if (!model) {
+      newConfirmBtn.textContent = '请选择或输入模型';
+      return;
+    }
+    const apiKey = keyInput ? keyInput.value.trim() : '';
+    newConfirmBtn.disabled = true;
+    newConfirmBtn.textContent = '正在配置...';
+    if (App.ws && App.ws.isConnected()) {
+      App.ws.send('set_provider', {
+        provider: providerName,
+        model: model,
+        api_key: apiKey,
+      });
+    }
+  });
+
+  // 存储回调引用供 model_list 事件使用
+  window.__providerModelSelect = modelSelect;
+  window.__providerModelCustom = modelCustomInput;
+  window.__providerConfirmBtn = newConfirmBtn;
+  window.__providerFetchBtn = newFetchBtn;
+  window.__provType = provType;
+}
+
+/**
+ * 开始扫描小说（由 provider_set 事件触发）
+ */
+function startScanning() {
+  App.setPhase('novel_select', 'scanning');
+  const scanning = document.getElementById('initialScanning');
+  if (scanning) scanning.style.display = 'flex';
 }
 
 /**
  * 进入空状态：不加载任何小说，直接进入主界面
- * 角色面板和地点面板为空，标题显示「请选择小说」
- */
-function enterEmptyState() {
-  clearGenerationLoading();
-  App.setPhase('novel_select', 'idle');
-  App.state.canonReady = false;
-  App.state.novelTitle = '';
-  // 直接隐藏欢迎界面，不加载任何 canon
-  hideWelcome();
-  // 标题设为请选择小说
-  const titleEl = document.getElementById('titleNovel');
-  if (titleEl) {
-    titleEl.textContent = '请选择小说';
-  }
-  // 更新标题按钮状态
-  updateTitleButton();
-}
-
 /**
  * 显示"开始冒险"按钮（替代旧的 Enter 触发）
  */
@@ -1393,8 +1664,56 @@ function showStartButton() {
   if (btn) {
     btn.style.display = 'flex';
     btn.disabled = false;
+    // 根据游戏状态设置按钮文字
+    const span = btn.querySelector('.start-btn__text');
+    if (span) {
+      span.textContent = App.state.beatCount > 0 ? '继续冒险' : '开始冒险';
+    }
   }
 }
+
+/**
+ * 手动模式：检查条件后更新开始按钮状态
+ */
+function updateStartButtonForManual() {
+  const btn = document.getElementById('startGameBtn');
+  if (!btn) return;
+
+  const chars = App.state.availableCanonChars || [];
+  const locs = App.state.availableCanonLocs || [];
+  const wr = App.state.worldRules || {};
+  const hasWorldRules = Object.values(wr).some(v => v && String(v).trim());
+
+  const met = chars.length >= 1 && locs.length >= 1 && hasWorldRules;
+  const missing = [];
+  if (chars.length < 1) missing.push('角色');
+  if (locs.length < 1) missing.push('地点');
+  if (!hasWorldRules) missing.push('世界观');
+
+  btn.style.display = 'flex';
+  if (met) {
+    btn.disabled = false;
+    btn.title = '';
+    const span = btn.querySelector('.start-btn__text');
+    if (span) span.textContent = '开始冒险';
+    const hint = btn.querySelector('.start-btn__hint');
+    if (hint) hint.textContent = '进入叙事';
+  } else {
+    btn.disabled = true;
+    btn.title = '缺少: ' + missing.join(', ');
+    const span = btn.querySelector('.start-btn__text');
+    if (span) span.textContent = '开始冒险';
+    const hint = btn.querySelector('.start-btn__hint');
+    if (hint) hint.textContent = '需要' + missing.join(' + ');
+  }
+}
+
+// 监听 canon_entries_updated 以更新手动模式按钮
+App.on('canon_entries_updated', () => {
+  if (App.state.canonSource === 'manual' && App.state._selectedProtagonistId) {
+    updateStartButtonForManual();
+  }
+});
 
 /**
  * 隐藏"开始冒险"按钮
@@ -1507,14 +1826,6 @@ function downloadCanonTemplate() {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
-
-// ═══════════════════════════════════════════════════════
-// beforeunload 清理
-// ═══════════════════════════════════════════════════════
-
-window.addEventListener('beforeunload', () => {
-  clearGenerationTimers();
-});
 
 // ═══════════════════════════════════════════════════════
 // 启动

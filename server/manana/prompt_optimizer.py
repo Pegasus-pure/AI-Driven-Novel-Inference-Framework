@@ -10,9 +10,11 @@ have been collected.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
+from datetime import datetime
 from typing import Any
 
 from .config import MananaConfig
@@ -174,7 +176,6 @@ class PromptOptimizer:
             return result
 
         finally:
-            import asyncio
             try:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
@@ -226,5 +227,4 @@ class PromptOptimizer:
 
     @staticmethod
     def _iso_now() -> str:
-        from datetime import datetime
         return datetime.now().isoformat()

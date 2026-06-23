@@ -1,0 +1,15 @@
+{
+  "id": "char_032",
+  "name": "星光家族的骑士们",
+  "aliases": [],
+  "role": "群体NPC",
+  "personality": {
+    "traits": [
+      "忠于家族",
+      "被迫服从于临时家主"
+    ]
+  },
+  "background_summary": "效忠于星光公爵府的骑士团成员。在弗雷成为临时领主后，他们被迫服从弗雷的指令——尽管内心不满。曾将阿莉娅拖出弗雷的房间。",
+  "status": "alive",
+  "memory_of_protagonist": {}
+}

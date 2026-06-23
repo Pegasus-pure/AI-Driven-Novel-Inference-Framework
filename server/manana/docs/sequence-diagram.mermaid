@@ -1,0 +1,105 @@
+sequenceDiagram
+    participant GS as GameSession
+    participant P as MananaPipeline
+    participant L0 as ContextBuilder
+    participant L1 as SceneDirector
+    participant L1b as ContinuityChecker
+    participant L2R1 as MotivationEngine
+    participant L2R2 as Dialogue+Action
+    participant L2R3 as RoleReflector
+    participant L3 as SceneComposer
+    participant L3b as Auditor
+    participant L4a as Extractor
+    participant CM as CharacterManager
+    participant LM as LocationManager
+    participant L4b as ThreadManager
+    participant L5 as Oracle
+    participant WS as WorldState
+
+    GS->>P: run_beat(player_action, world_state)
+    
+    %% L0
+    P->>L0: build(player_action, ws_dict)
+    L0-->>P: scene_context (ctx)
+    
+    %% L1
+    P->>L1: run({"scene_context": ctx})
+    L1-->>P: beat_plan
+    
+    %% L1b Continuity Checker
+    Note over P,L1b: 最多重试 2 次
+    loop continuity_check (max 2)
+        P->>L1b: run({"plan": plan, "context": ctx, "previous_narrative": last_narrative})
+        L1b-->>P: {"verdict": "APPROVED"|"REJECTED"|"NEEDS_TRANSITION", "feedback": str}
+        alt APPROVED
+            Note over P: break loop
+        else REJECTED or NEEDS_TRANSITION
+            P->>L1: rerun with continuity_feedback
+            L1-->>P: revised_plan
+            Note over P: plan = revised_plan, 重试计数++
+        end
+    end
+    
+    %% L2R1
+    P->>L2R1: run_motivations_parallel(ctx, plan)
+    L2R1-->>P: motivation_results
+    
+    %% L2R2
+    P->>L2R2: run_dialogue_actions_parallel(ctx, plan, motivations)
+    L2R2-->>P: character_outputs
+    
+    %% L2R3 Role Reflector
+    Note over P,L2R3: 最多重试 2 次
+    loop role_reflection (max 2)
+        P->>L2R3: run({"character_outputs": outputs, "plan": plan, "context": ctx})
+        L2R3-->>P: {"verdict": "PASS"|"NEED_TRANSITION"|"NEED_REWRITE", "jumps": [...], "transition_notes": {...}}
+        alt PASS
+            Note over P: break loop
+        else NEED_TRANSITION
+            P->>P: inject_transition_notes(character_outputs, reflect_result)
+            Note over P: break loop (不重做)
+        else NEED_REWRITE
+            P->>L2R1: rerun motivations
+            L2R1-->>P: new_motivations
+            P->>L2R2: rerun dialogue+action
+            L2R2-->>P: new_character_outputs
+            Note over P: 重试计数++
+        end
+    end
+    
+    %% L3
+    P->>L3: run({"plan": plan, "character_outputs": outputs, "scene_context": ctx})
+    L3-->>P: narrative_text
+    
+    %% L3b∥L4a 并行块
+    par Parallel Block
+        P->>L3b: run(auditor_input)
+        L3b-->>P: audit_result
+        P->>L4a: run(extractor_input)
+        L4a-->>P: state_patch
+        P->>CM: run({"narrative_text": text, "character_outputs": outputs, "existing_emergences": pendings})
+        CM-->>P: char_emergence_signals
+        P->>LM: run({"narrative_text": text, "scene_context": ctx, "existing_emergences": pendings})
+        LM-->>P: loc_emergence_signals
+    end
+    
+    %% 合并涌现信号
+    P->>P: merge_emergence_signals(char_signals + loc_signals, world_state)
+    P->>WS: pending_emergences 累加/合并/判定
+    WS-->>P: new_judgments
+    
+    %% L4b
+    P->>L4b: run_thread_manager(...)
+    L4b-->>P: thread_updates
+    
+    %% Apply state
+    P->>WS: apply_state_patch(state_patch)
+    P->>WS: apply_thread_updates(thread_updates)
+    
+    %% L5 (conditional)
+    alt beat_count % oracle_interval == 0
+        P->>L5: run(...)
+        L5-->>P: oracle_context
+    end
+    
+    P-->>GS: result_data (含 narrative_text + 涌现状态)

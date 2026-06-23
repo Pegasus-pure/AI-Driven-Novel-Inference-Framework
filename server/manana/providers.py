@@ -51,6 +51,34 @@ class BaseProvider(ABC):
         """Return the model name for this provider instance."""
         return str(self._config.get("model", ""))
 
+    async def list_models(self) -> tuple[list[str], str]:
+        """获取该提供者可用的模型列表。
+
+        默认实现尝试调用 /v1/models（OpenAI 兼容）。
+        子类可覆盖此方法（如 Ollama 使用 /api/tags）。
+
+        Returns:
+            (models: list[str], error: str) — 成功时 error 为空字符串
+        """
+        endpoint = self._config.get("endpoint", "")
+        if not endpoint:
+            return [], "endpoint 未配置"
+        try:
+            # 从 endpoint 推导 base_url
+            base = endpoint.rstrip("/")
+            for suffix in ("/chat/completions", "/api/chat"):
+                base = base.replace(suffix, "")
+            session = await self._ensure_session()
+            async with session.get(base + "/v1/models") as resp:
+                if resp.status != 200:
+                    return [], f"HTTP {resp.status}"
+                data = await resp.json()
+                models = [m.get("id", "") for m in data.get("data", []) if m.get("id")]
+                models.sort()
+                return models, ""
+        except Exception as exc:
+            return [], str(exc)
+
     async def _ensure_session(self) -> aiohttp.ClientSession:
         """Create or return the aiohttp session."""
         if self._session is None or self._session.closed:
@@ -100,10 +128,10 @@ class BaseProvider(ABC):
 
         return last_result
 
-    async def embed(self, text: str) -> list[float]:
-        """Text embedding. Returns empty list if unsupported by this provider."""
-        _log.warning("embed() not implemented for provider: %s", self.get_provider_name())
-        return []
+    # async def embed(self, text: str) -> list[float]:
+    #     """Text embedding. Not yet implemented — placeholder for vector memory."""
+    #     _log.debug("embed() not implemented for provider: %s", self.get_provider_name())
+    #     return []
 
     async def cleanup(self) -> None:
         """Release HTTP session resources."""
@@ -231,8 +259,7 @@ def _parse_openai_response(body_text: str) -> dict:
 class OllamaProvider(BaseProvider):
     """Ollama provider using the native /api/chat endpoint.
 
-    No API key required. Supports embedding via /api/embed.
-    """
+    No API key required."""
 
     def get_provider_name(self) -> str:
         return "ollama"
@@ -326,29 +353,28 @@ class OllamaProvider(BaseProvider):
 
         return {"ok": True, "content": content, "raw": body_text, "tokens": tokens}
 
-    async def embed(self, text: str) -> list[float]:
-        """Generate embeddings via Ollama /api/embed endpoint."""
-        model = self._config.get("embed_model", "nomic-embed-text")
-        base_endpoint = self._config.get("endpoint", "http://localhost:11434/api/chat")
-        embed_url = base_endpoint.replace("/api/chat", "/api/embed")
-
-        body = {"model": model, "input": text}
-
-        try:
-            session = await self._ensure_session()
-            async with session.post(embed_url, json=body) as resp:
-                raw = await resp.text()
-                if resp.status != 200:
-                    _log.error("Ollama embed failed: HTTP %d", resp.status)
-                    return []
-                data = json.loads(raw)
-                embeddings = data.get("embeddings", [])
-                if embeddings:
-                    return [float(v) for v in embeddings[0]]
-                return []
-        except Exception as exc:
-            _log.error("Ollama embed exception: %s", exc)
-            return []
+    # async def embed(self, text: str) -> list[float]:
+    #     """Generate embeddings via Ollama /api/embed endpoint.
+    #     NOT YET WIRED — placeholder for vector memory feature."""
+    #     model = self._config.get("embed_model", "nomic-embed-text")
+    #     base_endpoint = self._config.get("endpoint", "http://localhost:11434/api/chat")
+    #     embed_url = base_endpoint.replace("/api/chat", "/api/embed")
+    #     body = {"model": model, "input": text}
+    #     try:
+    #         session = await self._ensure_session()
+    #         async with session.post(embed_url, json=body) as resp:
+    #             raw = await resp.text()
+    #             if resp.status != 200:
+    #                 _log.error("Ollama embed failed: HTTP %d", resp.status)
+    #                 return []
+    #             data = json.loads(raw)
+    #             embeddings = data.get("embeddings", [])
+    #             if embeddings:
+    #                 return [float(v) for v in embeddings[0]]
+    #             return []
+    #     except Exception as exc:
+    #         _log.error("Ollama embed exception: %s", exc)
+    #         return []
 
 
 # ============================================================
@@ -379,7 +405,12 @@ class OpenAIProvider(BaseProvider):
 
 
 class DeepSeekProvider(BaseProvider):
-    """DeepSeek provider (OpenAI-compatible /v1/chat/completions endpoint)."""
+    """DeepSeek provider (OpenAI-compatible /v1/chat/completions endpoint).
+
+    Overrides _build_request_body to disable 'thinking' mode by default,
+    since deepseek-v4-flash enables it by default and does not populate
+    the 'content' field in thinking mode.
+    """
 
     def get_provider_name(self) -> str:
         return "deepseek"
@@ -390,6 +421,17 @@ class DeepSeekProvider(BaseProvider):
             self._config["endpoint"] = "https://api.deepseek.com/v1/chat/completions"
         self._config.setdefault("timeout", 60)
         self._config.setdefault("max_retries", 3)
+
+    def _build_request_body(self, system_prompt: str, user_message: str, options: dict) -> dict:
+        """Build request body with thinking mode disabled.
+
+        deepseek-v4-flash defaults to thinking mode, which puts output
+        in 'reasoning_content' instead of 'content'. We explicitly
+        disable it so _parse_openai_response can find content normally.
+        """
+        body = super()._build_request_body(system_prompt, user_message, options)
+        body["thinking"] = {"type": "disabled"}
+        return body
 
     def _parse_response(self, body_text: str) -> dict:
         return _parse_openai_response(body_text)

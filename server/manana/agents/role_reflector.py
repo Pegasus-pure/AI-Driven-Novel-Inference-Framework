@@ -152,43 +152,7 @@ class RoleReflector(BaseAgent):
         lines.append("请逐角色审计表演是否与上一拍状态一致。输出 JSON。")
         return "\n".join(lines)
 
-    async def run(self, input_data: dict) -> dict:
-        sys = str(input_data.get("system_prompt", "") or "") or self.build_system_prompt()
-        usr = self.build_user_prompt(input_data)
 
-        char_count = len(input_data.get("character_performances", []) or [])
-        self._log_info(f"→ 反思 {char_count} 个角色的表演...")
-        log_layer("L2R3", f"RoleReflector 启动 ({char_count} 角色)")
-
-        result = await self._call_llm(sys, usr, {"json_mode": True, "temperature": 0.3, "max_tokens": 2048})
-
-        if not result.get("ok", False):
-            return {"ok": False, "results": [], "raw": {},
-                    "error": result.get("error", "LLM call failed")}
-
-        parsed = self._parse_json_response(result)
-        if parsed.get("error", ""):
-            return {"ok": False, "results": [], "raw": {},
-                    "error": "JSON parse failed: " + str(parsed.get("error", ""))}
-
-        data: dict = parsed.get("data", {}) or {}
-        results: list = data.get("results", []) or []
-
-        pass_count = sum(1 for r in results if r.get("verdict") == "PASS")
-        transition_count = sum(1 for r in results if r.get("verdict") == "NEED_TRANSITION")
-        rewrite_count = sum(1 for r in results if r.get("verdict") == "NEED_REWRITE")
-
-        if rewrite_count > 0:
-            self._log_warn(f"⚠ 角色审计: {pass_count}通过/{transition_count}过渡/{rewrite_count}重做")
-        else:
-            self._log_info(f"→ 角色审计: {pass_count}通过/{transition_count}过渡/{rewrite_count}重做")
-        log_layer("L2R3", f"RoleReflector 完成 — {pass_count}PASS/{transition_count}TRANS/{rewrite_count}REWR")
-
-        return {"ok": True, "results": results, "raw": data}
-
-
-# ============================================================
-# L3b: CharacterManager (涌现建议 — 角色检测)
-# ============================================================
-
+    def _get_llm_options(self, input_data: dict) -> dict:
+        return {"json_mode": True, "temperature": 0.3, "max_tokens": 1024}
 

@@ -28,7 +28,7 @@ _log = logging.getLogger("MaNA.Agent.Light")
 class MicroOracleAgent(BaseAgent):
     """v4 P1-1 — Micro-Oracle quality feedback at end of each beat.
 
-    model_tier: light, temperature: 0, max_tokens: 80, json_mode: true.
+    model_tier: light, temperature: 0, max_tokens: 240, json_mode: true.
     """
 
     agent_name: str = "MicroOracle"
@@ -61,32 +61,7 @@ class MicroOracleAgent(BaseAgent):
     def build_user_prompt(self, input_data: dict) -> str:
         return "上一拍摘要:\n" + str(input_data.get("narrative_summary", ""))
 
-    async def run(self, input_data: dict) -> dict:
-        sys = str(input_data.get("system_prompt", "") or "") or self.build_system_prompt()
-        usr = self.build_user_prompt(input_data)
 
-        result = await self._call_llm(sys, usr, {"temperature": 0.0, "max_tokens": 120, "json_mode": True})
+    def _get_llm_options(self, input_data: dict) -> dict:
+        return {"temperature": 0.0, "max_tokens": 240, "json_mode": True}
 
-        parsed = self._parse_json_response(result)
-        if not parsed.get("ok", False):
-            return {
-                "has_issue": False,
-                "one_line_feedback": "",
-                "severity": "info",
-                "system_health": "healthy",
-                "suggestions": [],
-            }
-
-        data: dict = parsed.get("data", {}) or {}
-        return {
-            # 旧字段（向后兼容）
-            "has_issue": bool(data.get("has_issue", data.get("system_health") == "critical")),
-            "one_line_feedback": str(data.get("one_line_feedback", "")),
-            "severity": str(data.get("severity",
-                "alert" if data.get("system_health") == "critical"
-                else "warning" if data.get("system_health") == "warning"
-                else "info")),
-            # 新字段
-            "system_health": str(data.get("system_health", "healthy")),
-            "suggestions": list(data.get("suggestions", []) or []),
-        }

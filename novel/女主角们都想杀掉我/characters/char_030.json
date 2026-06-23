@@ -1,0 +1,15 @@
+{
+  "id": "char_030",
+  "name": "格蕾尔的弟弟",
+  "aliases": [],
+  "role": "龙套",
+  "personality": {
+    "traits": [
+      "虚弱",
+      "年幼"
+    ]
+  },
+  "background_summary": "格蕾尔的亲弟弟，卧病在床。格蕾尔最初乞讨和卖面包是为了让他吃上一片面包。弗雷听说后给了钱袋说'治好弟弟的病，找个家吧'。他的健康状况直接影响了格蕾尔的行动动机。",
+  "status": "alive（推测被治愈）",
+  "memory_of_protagonist": {}
+}

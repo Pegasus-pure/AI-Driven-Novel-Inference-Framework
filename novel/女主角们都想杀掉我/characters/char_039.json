@@ -1,0 +1,16 @@
+{
+  "id": "char_039",
+  "name": "魔法塔的调查法师们",
+  "aliases": [
+    "法师调查员"
+  ],
+  "role": "群体NPC",
+  "personality": {
+    "traits": [
+      "专业",
+      "不情愿地被派来"
+    ]
+  },
+  "background_summary": "被塔主派来学院调查平民宿舍事件的魔法师团队。他们对任务不满却不敢违抗命令。在黑暗魔像的黑暗中被卡尼亚的黑暗魔力困住。",
+  "memory_of_protagonist": {}
+}

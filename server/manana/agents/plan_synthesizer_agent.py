@@ -56,25 +56,7 @@ class PlanSynthesizerAgent(BaseAgent):
             "\n\n角色视角方案:\n" + json.dumps(char_plan, ensure_ascii=False, indent=2)
         )
 
-    async def run(self, input_data: dict) -> dict:
-        sys = str(input_data.get("system_prompt", "") or "") or self.build_system_prompt()
-        usr = self.build_user_prompt(input_data)
 
-        result = await self._call_llm(sys, usr, {"temperature": 0.4, "max_tokens": 1024, "json_mode": True})
-
-        parsed = self._parse_json_response(result)
-        if not parsed.get("ok", False):
-            # Degrade: pick non-empty plan
-            char_plan = input_data.get("character_plan", {}) or {}
-            plot_plan = input_data.get("plot_plan", {}) or {}
-            fallback = char_plan if char_plan else plot_plan
-            return {"ok": True, "raw": fallback}
-
-        return {"ok": True, "raw": parsed.get("data", {}) or {}}
-
-
-# ============================================================
-# L1b: ContinuityChecker
-# ============================================================
-
+    def _get_llm_options(self, input_data: dict) -> dict:
+        return {"temperature": 0.4, "max_tokens": 1024, "json_mode": True}
 

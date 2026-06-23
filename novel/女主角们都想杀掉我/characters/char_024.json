@@ -1,0 +1,24 @@
+{
+  "id": "char_024",
+  "name": "莱梅尔诺",
+  "aliases": [
+    "Le Merlot",
+    "魔王军智囊"
+  ],
+  "role": "反派",
+  "personality": {
+    "traits": [
+      "冷静",
+      "计算型",
+      "忠诚于艾希"
+    ],
+    "speech_style": "冷静分析的口吻"
+  },
+  "background_summary": "魔王军的智囊谋士。在学院攻防战中负责指挥魔王军主力部队冲锋，冷静判断战局。曾被派遣核实海岸的侵蚀现象。她对魔王艾希忠心耿耿。",
+  "abilities": [
+    "战术指挥",
+    "侵蚀现象分析"
+  ],
+  "status": "unknown（战后结局不详）",
+  "memory_of_protagonist": {}
+}

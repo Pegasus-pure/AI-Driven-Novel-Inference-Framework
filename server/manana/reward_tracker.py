@@ -121,9 +121,11 @@ class RewardTracker:
         return result
 
     def log(self, reward_record: dict) -> None:
-        """Append reward record to the JSONL log file."""
+        """Append reward record to the JSONL log file (with rotation)."""
         if not self._enabled:
             return
+        # 简单轮转：超过 1MB 时重命名
+        _rotate_if_needed(self._log_path, max_bytes=1_048_576)
         try:
             with open(self._log_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(reward_record, ensure_ascii=False) + "\n")
@@ -156,3 +158,20 @@ def _health_to_score(health: str) -> float:
 
 def _clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, value))
+
+
+def _rotate_if_needed(log_path: str, max_bytes: int) -> None:
+    """如果日志文件超过 max_bytes，重命名为 .1.bak（保留最近一份）。"""
+    try:
+        size = os.path.getsize(log_path)
+    except (OSError, FileNotFoundError):
+        return
+    if size < max_bytes:
+        return
+    bak = log_path + ".1.bak"
+    try:
+        if os.path.exists(bak):
+            os.remove(bak)
+        os.rename(log_path, bak)
+    except OSError:
+        pass

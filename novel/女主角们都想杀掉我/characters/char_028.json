@@ -1,0 +1,15 @@
+{
+  "id": "char_028",
+  "name": "雅莲恩的妹妹",
+  "aliases": [],
+  "role": "龙套",
+  "personality": {
+    "traits": [
+      "害怕",
+      "为姐姐哀求"
+    ]
+  },
+  "background_summary": "雅莲恩的妹妹，星光公爵府的女仆。在雅莲恩被释放后仍然害怕弗雷会报复姐姐，曾在走廊跪下哀求弗雷原谅。弗雷记住了她的脸并暗中保护了她。",
+  "status": "alive",
+  "memory_of_protagonist": {}
+}

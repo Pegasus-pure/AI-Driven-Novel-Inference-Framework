@@ -29,13 +29,33 @@
   "relationships": [
 	{"target": "char_002", "type": "关系类型", "intensity": 0.0~1.0}
   ],
-  "starting_location": "loc_001"
-}
+	"starting_location": "loc_001",
+	"key_traits": ["关键特质1", "关键特质2"],
+	"anti_rules": ["绝对不会发生的事1", "反套路特征2"],
+	"status": "alive"
+
+	// 可选扩展字段（用于灵魂附生模式）
+	"memory_of_protagonist": {
+		"char_001": {
+			"impression": "一句话描述 NPC 记忆中主角是什么样的人",
+			"key_memories": ["具体场景事件1", "场景2"],
+			"expected_behavior": "NPC 预期中主角的行为方式",
+			"trust_level": 0.0~1.0
+		}
+	},
+	"npc_relationships": [
+		{"target": "char_008", "type": "挚友/青梅竹马", "bond_strength": 0.85}
+	]
 
 要求：
 - 只输出角色首次出现或最重要出场的信息
-- 角色数控制在 5-10 个（核心角色）
+- 角色数控制在 5-15 个（核心角色，长篇可适当增加）
 - relationships 只列出与故事主线相关的核心关系
+- key_traits 提炼角色最与众不同的 1-3 个特质
+- anti_rules 列出角色不会做的事或不会踩的雷点
+- memory_of_protagonist 和 npc_relationships 为可选字段
+- memory_of_protagonist 只对与主角有直接互动的角色生成
+- npc_relationships 只列出与故事相关的 NPC 间关系
 ```
 
 ## 世界观抽取 (Pass B)
@@ -75,13 +95,17 @@
 	"type": "建筑 / 城市 / 自然 / 其他",
 	"parent": "上级地点ID（如该地点属于某个城市）",
 	"description": "环境描写（2-3句）",
-	"atmosphere": "氛围（如：阴森、庄严、热闹）"
+	"atmosphere": "氛围（如：阴森、庄严、热闹）",
+	"sub_locations": [
+	  {"id": "loc_001a", "name": "子地点名", "type": "建筑"}
+	]
   }
 ]
 
 要求：
-- 提取 3-8 个核心地点
+- 提取 3-10 个核心地点
 - 每个地点的 description 基于原文具体描写
+- sub_locations 可选，仅当该地点内部有重要的子区域时添加
 ```
 
 ## 时间线抽取 (Pass D)
@@ -96,13 +120,24 @@
 	"description": "事件简述（1-2句）",
 	"involved_characters": ["char_001", "char_003"],
 	"involved_locations": ["loc_001"],
-	"significance": "故事起点 / 揭示主线冲突 / 高潮对决 / 关键转折"
+	"significance": "故事起点 / 揭示主线冲突 / 高潮对决 / 关键转折",
+	"conflicts": [
+	  {
+		"id": "conflict_001",
+		"type": "mystery / character_conflict / moral_dilemma / external_threat",
+		"description": "冲突描述",
+		"involved_characters": ["char_001"],
+		"intensity": 0.0~1.0,
+		"variants": ["可能的冲突走向1", "走向2"]
+	  }
+	]
   }
 ]
 
 要求：
-- 提取 3-6 个关键事件
+- 提取 3-8 个关键事件
 - 事件应覆盖故事的开端→冲突→高潮结构
+- conflicts 可选，仅当事件涉及可展开的剧情冲突时添加
 ```
 
 ## 写作风格
@@ -124,4 +159,4 @@
 1. 同一角色在不同块中可能以不同名字/别名出现 → 合并到同一 id
 2. 同一地点可能在不同块中有略微不同的描述 → 取最丰富的一条
 3. 关系 intensity 取多块平均值
-4. 最终 canon.json 结构参考 `src/data/canon.json`
+4. 最终 canon.json 结构参考 `novel/canon.json`

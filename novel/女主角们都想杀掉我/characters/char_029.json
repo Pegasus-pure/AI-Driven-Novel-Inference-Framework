@@ -1,0 +1,15 @@
+{
+  "id": "char_029",
+  "name": "调查组组长",
+  "aliases": [],
+  "role": "龙套",
+  "personality": {
+    "traits": [
+      "贪腐",
+      "精明"
+    ]
+  },
+  "background_summary": "帝国调查组的负责人，被派来调查平民宿舍事件。他不仅接受了卡尼亚的贿赂，甚至主动指导了'应该提供多少贿赂才能覆盖整个事件'的金额方案。弗雷将他加入黑名单。",
+  "status": "alive",
+  "memory_of_protagonist": {}
+}

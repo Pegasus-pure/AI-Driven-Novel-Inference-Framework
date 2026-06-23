@@ -119,44 +119,7 @@ class LocationManager(BaseAgent):
         lines.append("请按 JSON 格式输出检测结果和判定结果。")
         return "\n".join(lines)
 
-    async def run(self, input_data: dict) -> dict:
-        sys = str(input_data.get("system_prompt", "") or "") or self.build_system_prompt()
-        usr = self.build_user_prompt(input_data)
 
-        pending_count = len(input_data.get("pending_emergences", {}) or {})
-        self._log_info(f"→ 扫描地点涌现 ({pending_count} 待判定)...")
-        log_layer("L3b", "LocationManager 启动")
-
-        result = await self._call_llm(sys, usr, {"json_mode": True, "temperature": 0.3, "max_tokens": 2048})
-
-        if not result.get("ok", False):
-            return {"ok": False, "detected_emergences": [], "readiness_results": [],
-                    "error": result.get("error", "LLM call failed")}
-
-        parsed = self._parse_json_response(result)
-        if parsed.get("error", ""):
-            return {"ok": False, "detected_emergences": [], "readiness_results": [],
-                    "error": "JSON parse failed: " + str(parsed.get("error", ""))}
-
-        data: dict = parsed.get("data", {}) or {}
-        detected: list = data.get("detected_emergences", []) or []
-        readiness: list = data.get("readiness_results", []) or []
-
-        if detected:
-            names = [d.get("name", "?") for d in detected]
-            self._log_info(f"→ 发现新地点: {', '.join(names)}")
-        if readiness:
-            ready_names = [r.get("name", "?") for r in readiness if r.get("readiness") == "READY"]
-            if ready_names:
-                self._log_info(f"→ 准备就绪: {', '.join(ready_names)}")
-        log_layer("L3b", f"LocationManager 完成 — 检测{len(detected)}新, {len(readiness)}判定")
-
-        return {"ok": True, "detected_emergences": detected,
-                "readiness_results": readiness, "raw": data}
-
-
-# ============================================================
-# v4: MicroOracleAgent
-# ============================================================
-
+    def _get_llm_options(self, input_data: dict) -> dict:
+        return {"json_mode": True, "temperature": 0.3, "max_tokens": 512}
 

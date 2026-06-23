@@ -26,7 +26,7 @@ _log = logging.getLogger("MaNA.Agent.Light")
 
 
 class PlanScorerAgent(BaseAgent):
-    """v4 P0-2 — Plan Scorer for Best-of-3 Director selection.
+    """v4 P0-2 — Plan Scorer for Best-of-N Director selection.
 
     model_tier: light, temperature: 0, max_tokens: 80, json_mode: true.
     """
@@ -64,34 +64,7 @@ class PlanScorerAgent(BaseAgent):
         # PlanScorer receives the beat plan directly as input_data
         return "评估以下节拍计划：\n" + json.dumps(input_data, ensure_ascii=False, indent=2)
 
-    async def run(self, input_data: dict) -> dict:
-        sys = str(input_data.get("system_prompt", "") or "") or self.build_system_prompt()
-        usr = self.build_user_prompt(input_data)
 
-        result = await self._call_llm(sys, usr, {"temperature": 0.0, "max_tokens": 120, "json_mode": True})
-
-        parsed = self._parse_json_response(result)
-        if not parsed.get("ok", False):
-            return {"ok": False, "error": str(parsed.get("error", "scorer parse failed")), "raw": input_data}
-
-        data: dict = parsed.get("data", {}) or {}
-        scores: dict = data.get("scores", {}) or {}
-        return {
-            "ok": True,
-            "total": int(float(scores.get("total") or data.get("total") or 0)),
-            "scores": {
-                "thread_progress": int(scores.get("thread_progress", 0)),
-                "character_naturalness": int(scores.get("character_naturalness", 0)),
-                "causal_link": int(scores.get("causal_link", 0)),
-            },
-            "system_health": str(data.get("system_health", "healthy")),
-            "suggestions": list(data.get("suggestions", []) or []),
-            "raw": input_data,
-        }
-
-
-# ============================================================
-# L2R3: RoleReflector
-# ============================================================
-
+    def _get_llm_options(self, input_data: dict) -> dict:
+        return {"temperature": 0.0, "max_tokens": 512, "json_mode": True}
 

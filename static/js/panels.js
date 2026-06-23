@@ -15,6 +15,7 @@ export class PanelManager {
     this._panels = [];
     /** @type {Object<string,string>} 快捷键映射 */
     this._keyMap = {
+      'F0': 'dashboard',
       'F1': 'narrative',
       'F2': 'world',
       'F3': 'characters',

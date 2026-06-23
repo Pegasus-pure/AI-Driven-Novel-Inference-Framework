@@ -1,0 +1,68 @@
+{
+  "meta": {
+    "version": "3.0",
+    "description": "Rain Web 项目多小说 Canon 索引文件（完整扩展版）",
+    "schema_reference": "novel/extract_prompt.md",
+    "last_updated": "2026-06-22T16:57:00Z",
+    "schema_fields_added_v3": ["background_summary", "key_relationships (with narrative_weight)", "speech_style (structured)", "writing_style.narrative_tricks", "writing_style.key_themes"]
+  },
+  "novels": [
+    {
+      "id": "canon_女主角们都想杀掉我",
+      "title": "女主角们都想杀掉我",
+      "file": "canon_女主角们都想杀掉我.json",
+      "total_chapters": 455,
+      "characters": 40,
+      "locations": 26,
+      "events": 17,
+      "size_kb": 82,
+      "extraction_confidence": 0.95,
+      "extraction_timestamp": "2026-06-22T16:41:00Z"
+    },
+    {
+      "id": "canon_成為我筆下小說的路人甲",
+      "title": "成為我筆下小說的路人甲",
+      "file": "canon_成為我筆下小說的路人甲.json",
+      "total_chapters": 356,
+      "characters": 26,
+      "locations": 13,
+      "events": 6,
+      "size_kb": 25,
+      "extraction_confidence": 0.88,
+      "extraction_timestamp": "2026-06-22T16:59:00Z"
+    },
+    {
+      "id": "canon_魔王去上學",
+      "title": "魔王去上學",
+      "file": "canon_魔王去上學.json",
+      "total_chapters": 478,
+      "characters": 17,
+      "locations": 8,
+      "events": 7,
+      "size_kb": 19,
+      "extraction_confidence": 0.82,
+      "extraction_timestamp": "2026-06-22T17:00:00Z"
+    }
+  ],
+  "schema": {
+    "extraction_prompt": "extract_prompt.md",
+    "character_fields": [
+      "id", "name", "aliases", "role", "personality (traits/speech_style/core_motivation/core_fear/moral_alignment)",
+      "appearance", "background_summary", "abilities", "key_relationships",
+      "starting_location", "key_traits", "anti_rules", "status",
+      "memory_of_protagonist", "npc_relationships"
+    ],
+    "world_rules_fields": [
+      "era", "magic_system (name/rules/limitations)", "society (structure/factions/technology_level)", "species", "key_concepts"
+    ],
+    "location_fields": [
+      "id", "name", "type", "parent", "description", "atmosphere", "sub_locations", "key_events", "first_appearance"
+    ],
+    "timeline_fields": [
+      "id", "title", "description", "involved_characters", "involved_locations", "significance", "conflicts", "dialogues"
+    ],
+    "writing_style_fields": [
+      "tone (primary/secondary/arc)", "pace", "dialogue_style", "narrative_tricks", "key_themes", "author_notes"
+    ]
+  }
+}

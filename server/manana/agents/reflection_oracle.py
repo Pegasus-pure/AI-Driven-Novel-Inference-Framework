@@ -121,42 +121,9 @@ staleness: fresh / stale / stuck + suggestion
 
         return "\n".join(lines)
 
-    async def run(self, input_data: dict) -> dict:
-        sys = str(input_data.get("system_prompt", "") or "") or self.build_system_prompt()
-        usr = self.build_user_prompt(input_data)
 
-        beat_count = len(input_data.get("recent_beats_summary", []) or [])
-        self._log_info(f"→ 反思评估 ({beat_count} 节拍回顾)...")
-        log_layer("L5", f"ReflectionOracle 启动 — {beat_count} 节拍回顾, 偏离度 {input_data.get('divergence_trend', 0.0):.2f}")
-
-        result = await self._call_llm(sys, usr, {"json_mode": True, "temperature": 0.9, "max_tokens": 3072})
-
-        if not result.get("ok", False):
-            return {"ok": False, "content": "", "raw": {}, "error": result.get("error", "LLM call failed")}
-
-        parsed = self._parse_json_response(result)
-        if parsed.get("error", ""):
-            return {"ok": False, "content": result.get("content", ""), "raw": {},
-                    "error": "JSON parse failed: " + str(parsed.get("error", ""))}
-
-        data: dict = parsed.get("data", {}) or {}
-        self._ensure_defaults(data)
-
-        validation = MananaSchema.validate_oracle_output(data)
-        if not validation.get("valid", False):
-            self._log_warn(f"输出验证警告: {validation.get('errors', [])}")
-
-        pacing: dict = data.get("pacing_assessment", {}) or {}
-        observations: list = data.get("character_observations", []) or []
-        thread_health: list = data.get("thread_health", []) or []
-        opportunities: list = data.get("narrative_opportunities", []) or []
-
-        self._log_info(f"→ 节奏: {pacing.get('rating', '?')}, 角色观察: {len(observations)}, "
-                       f"线索诊断: {len(thread_health)}, 机会: {len(opportunities)}")
-        log_layer("L5", f"ReflectionOracle 完成 — 节奏评级: {pacing.get('rating', '?')}, "
-                  f"{len(opportunities)} 叙事机会")
-
-        return {"ok": True, "content": result.get("content", ""), "raw": data}
+    def _get_llm_options(self, input_data: dict) -> dict:
+        return {"json_mode": True, "temperature": 0.9, "max_tokens": 2048}
 
     def _ensure_defaults(self, data: dict) -> None:
         defaults: dict[str, Any] = {

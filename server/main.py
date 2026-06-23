@@ -19,6 +19,8 @@ if _PROJECT_DIR not in sys.path:
 import asyncio
 import json
 import uuid
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
 
 import yaml as _yaml
 
@@ -26,28 +28,51 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from .game_session import GameSession
-from .websocket_manager import WebSocketManager
-from .canon_manager import CanonManager
-from .manana.pipeline_definition import get_config_define, get_pipeline_nodes_meta
+from server.app.game_session import GameSession
+from server.network.websocket_manager import WebSocketManager
+from server.data.canon_manager import CanonManager
+from server.manana.pipeline_definition import get_config_define, get_pipeline_nodes_meta
 
 # ── 日志（使用模块级 logger，避免 basicConfig 冲突） ──
-from .logging_config import get_logger
+from server.config.logging_config import get_logger
 _log = get_logger("Rain.Server")
 
 # ── 路径（统一从 paths.py 导入）──
-from .paths import STATIC_DIR as _STATIC_DIR, CONFIG_PATH as _CONFIG_PATH
+from server.config.paths import STATIC_DIR as _STATIC_DIR, CONFIG_PATH as _CONFIG_PATH
 
-# ── FastAPI 应用 ──
+# ── FastAPI 应用（使用 lifespan 替代已弃用的 on_event）──
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """应用生命周期管理器（替代 @app.on_event）"""
+    # 启动时执行
+    asyncio.ensure_future(_session_cleanup_loop())
+    _log.info("session 过期清理任务已启动 (TTL=%ds)", 1800)
+    yield
+    # 关闭时执行（如果需要清理资源）
+
+
 app = FastAPI(
     title="Rain Web",
     version="1.0.0",
     docs_url=None,
     redoc_url=None,
+    lifespan=lifespan,
 )
 
 # ── WebSocket 管理器（全局单例）──
 ws_manager = WebSocketManager()
+
+
+# ── session 过期清理后台任务 ──
+async def _session_cleanup_loop() -> None:
+    """每 5 分钟检查一次过期 session。"""
+    while True:
+        await asyncio.sleep(300)
+        cleaned = await ws_manager.cleanup_stale_sessions()
+        if cleaned:
+            _log.info("session 清理循环: 清理了 %d 个过期会话", cleaned)
+
+
 
 
 # ═══════════════════════════════════════════════════════════
@@ -91,8 +116,10 @@ async def api_abort(session_id: str = "") -> dict:
             session._generation_in_progress = False
             session._current_agent = None
             _log.info("HTTP 中止: session=%s", session_id)
-            return {"success": True, "message": "生成已中止"}
-        return {"success": True, "message": "当前无进行中的生成"}
+            message = "生成已中止"
+        else:
+            message = "当前无进行中的生成"
+        return {"success": True, "message": message}
     except Exception as exc:
         _log.error("HTTP 中止失败: %s", exc)
         return {"success": False, "message": str(exc)}
@@ -107,7 +134,7 @@ async def api_abort(session_id: str = "") -> dict:
 async def get_features() -> dict:
     """读取 config.yaml 的 features 段"""
     try:
-        from server.paths import CONFIG_PATH as _CP
+        from server.config.paths import CONFIG_PATH as _CP
         if not _CP.is_file():
             return {"success": False, "message": "config.yaml 不存在"}
         with open(_CP, "r", encoding="utf-8") as f:
@@ -123,7 +150,7 @@ async def get_features() -> dict:
 async def put_features(payload: dict) -> dict:
     """写入 config.yaml 的 features 段"""
     try:
-        from server.paths import CONFIG_PATH as _CP
+        from server.config.paths import CONFIG_PATH as _CP
         if not _CP.is_file():
             return {"success": False, "message": "config.yaml 不存在"}
         with open(_CP, "r", encoding="utf-8") as f:
@@ -163,6 +190,69 @@ async def api_get_pipeline_nodes_meta() -> dict:
         return {"success": True, "meta": meta}
     except Exception as exc:
         _log.error("读取管线节点元数据失败: %s", exc)
+        return {"success": False, "message": str(exc)}
+
+
+
+@app.get("/api/soul/profile")
+async def api_get_soul_profile(session_id: str = "") -> dict:
+    """返回灵魂附生档案（OCEAN 人格、道德阵营）"""
+    try:
+        if not session_id:
+            return {"success": False, "message": "缺少 session_id"}
+        
+        session = ws_manager.sessions.get(session_id)
+        if session is None:
+            return {"success": False, "message": f"会话 {session_id} 不存在"}
+        
+        # 从 soul_possession 模块中提取数据
+        # TODO: 实际实现需要从 SoulPossessionManager 中获取
+        soul_data = {
+            "ocean": {
+                "openness": 0.7,
+                "conscientiousness": 0.6,
+                "extraversion": 0.4,
+                "agreeableness": 0.8,
+                "neuroticism": 0.3
+            },
+            "moral_alignment": "neutral_good",
+            "inner_monologue": "内心独白内容..."
+        }
+        
+        return {"success": True, "data": soul_data}
+    except Exception as exc:
+        _log.error("获取灵魂档案失败: %s", exc)
+        return {"success": False, "message": str(exc)}
+
+
+@app.get("/api/npc/dissonance")
+async def api_get_npc_dissonance(session_id: str = "") -> dict:
+    """返回 NPC 认知冲突列表"""
+    try:
+        if not session_id:
+            return {"success": False, "message": "缺少 session_id"}
+        
+        session = ws_manager.sessions.get(session_id)
+        if session is None:
+            return {"success": False, "message": f"会话 {session_id} 不存在"}
+        
+        # 从 character_cognition 模块中提取数据
+        # TODO: 实际实现需要从 CharacterCognitionManager 中获取
+        dissonance_data = {
+            "npc_dissonances": [
+                {
+                    "npc_id": "npc_001",
+                    "npc_name": "李四",
+                    "conflict_type": "identity_confusion",
+                    "conflict_level": 0.7,
+                    "description": "李四对主角的身份感到困惑"
+                }
+            ]
+        }
+        
+        return {"success": True, "data": dissonance_data}
+    except Exception as exc:
+        _log.error("获取 NPC 认知冲突失败: %s", exc)
         return {"success": False, "message": str(exc)}
 
 @app.get("/")
@@ -214,7 +304,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str = "") -> None
             session = ws_manager.sessions[session_id]
             _log.info("恢复会话: %s", session_id)
             # 重连时也同步更新 _connections 映射
-            ws_manager.register_connection(session_id, websocket)
+            await ws_manager.register_connection(session_id, websocket)
             # 发送重连确认
             await ws_manager.send_json(websocket, {
                 "type": "reconnected",
@@ -246,10 +336,10 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str = "") -> None
                 await websocket.close()
                 return
 
-            ws_manager.register_session(sid, session)
+            await ws_manager.register_session(sid, session)
 
             # 同步更新 _connections 映射（首次连接时 connect() 无法正确注册）
-            ws_manager.register_connection(sid, websocket)
+            await ws_manager.register_connection(sid, websocket)
 
             # 初始化会话（不再自动加载 Canon）
             try:
@@ -407,59 +497,73 @@ async def _route_message(
                 "payload": session.canon_ready_payload(),
             })
 
-    elif msg_type == "regenerate_canon":
+    elif msg_type == "load_running_canon":
+        """加载手动创建的运行 Canon（无对应 canon JSON 文件）"""
+        title = str(payload.get("title", "")).strip()
+        if not title:
+            await ws_manager.send_json(websocket, {
+                "type": "error",
+                "payload": {"code": "INVALID_REQUEST", "message": "未指定小说标题"},
+            })
+            return
+
+        can_switch, reason = session.can_switch_novel()
+        if not can_switch:
+            await ws_manager.send_json(websocket, {
+                "type": "error",
+                "payload": {"code": "CANNOT_SWITCH", "message": reason},
+            })
+            return
+
+        if not session.canon_manager.load_running_canon(title):
+            await ws_manager.send_json(websocket, {
+                "type": "error",
+                "payload": {"code": "LOAD_FAILED", "message": f"加载失败: {title}（目录结构不存在或已损坏）"},
+            })
+            return
+
+        session.current_novel = title
+        _log.info("运行 Canon 已加载: %s", title)
+
+        await ws_manager.send_json(websocket, {
+            "type": "canon_ready",
+            "payload": session.canon_ready_payload(),
+        })
+
+    elif msg_type == "create_empty_canon":
+        """从头创建空白 Canon（不加载任何文件）"""
+        title = str(payload.get("title", "")).strip()
+        if not title:
+            await ws_manager.send_json(websocket, {
+                "type": "error",
+                "payload": {"code": "INVALID_REQUEST", "message": "请输入小说标题"},
+            })
+            return
+
         # 切换小说前检查
         can_switch, reason = session.can_switch_novel()
         if not can_switch:
             await ws_manager.send_json(websocket, {
                 "type": "error",
-                "payload": {
-                    "code": "CANNOT_SWITCH_MID_GAME",
-                    "message": reason,
-                },
+                "payload": {"code": "CANNOT_SWITCH", "message": reason},
             })
             return
 
-        txt_path = str(payload.get("txt_path", ""))
-        content = str(payload.get("content", ""))
-
-        if not txt_path and not content:
+        success = session.canon_manager.create_empty_running_canon(title)
+        if not success:
             await ws_manager.send_json(websocket, {
                 "type": "error",
-                "payload": {"code": "INVALID_CANON_JSON", "message": "需要提供 txt_path 或 content"},
+                "payload": {"code": "CREATE_FAILED", "message": "创建失败，可能已存在同名小说"},
             })
             return
 
-        # 定义进度回调闭包（闭包捕获 websocket）
-        async def _progress_callback(status_data: dict) -> None:
-            """LLM 生成进度回调"""
-            await ws_manager.send_json(websocket, {
-                "type": "canon_generation_status",
-                "payload": status_data,
-            })
-            # 如果生成完成或回退，发送 canon_ready
-            status = status_data.get("status", "")
-            if status in ("completed", "fallback"):
-                await ws_manager.send_json(websocket, {
-                    "type": "canon_ready",
-                    "payload": session.canon_ready_payload(),
-                })
-            elif status == "error":
-                # 生成失败：发送明确的失败消息，让前端恢复选择界面
-                await ws_manager.send_json(websocket, {
-                    "type": "canon_generation_failed",
-                    "payload": {
-                        "message": status_data.get("message", "世界观数据生成失败"),
-                        "elapsed_seconds": status_data.get("elapsed_seconds", 0),
-                    },
-                })
+        session.current_novel = title
+        _log.info("空白 Canon 已创建: %s", title)
 
-        # 启动异步生成
-        await session.start_llm_generation_with_progress(
-            txt_path=txt_path,
-            content=content,
-            progress_cb=_progress_callback,
-        )
+        await ws_manager.send_json(websocket, {
+            "type": "canon_ready",
+            "payload": session.canon_ready_payload(),
+        })
 
     elif msg_type == "import_canon_json":
         # 切换小说前检查
@@ -492,29 +596,12 @@ async def _route_message(
         else:
             await ws_manager.send_json(websocket, {
                 "type": "error",
-                "payload": {"code": "INVALID_CANON_JSON", "message": message},
+                "payload": {"code": "IMPORT_FAILED", "message": message},
             })
-
-    elif msg_type == "canon_generation_status":
-        # 查询生成状态（前端重连后可能用到）
-        elapsed = 0.0
-        if session._generation_in_progress and session._generation_start_time > 0:
-            import time
-            elapsed = round(time.time() - session._generation_start_time, 1)
-        status_info = {
-            "status": "generating" if session._generation_in_progress else "idle",
-            "message": "世界观数据生成中..." if session._generation_in_progress else "无进行中的任务",
-            "elapsed_seconds": elapsed,
-        }
-        await ws_manager.send_json(websocket, {
-            "type": "canon_generation_status",
-            "payload": status_info,
-        })
 
     # ──────────────────────────────────────────────────
     # 原有消息处理
     # ──────────────────────────────────────────────────
-
 
 
     elif msg_type == "abort_generation":
@@ -544,6 +631,12 @@ async def _route_message(
     elif msg_type == "player_action":
         text = str(payload.get("text", ""))
         choice_id = str(payload.get("choice_id", "")) if payload.get("choice_id") else ""
+        soul_mode = payload.get("soul_mode", "")
+
+        # ★ 灵魂附生模式：存储 soul_mode 供 stream_beat 使用
+        if soul_mode:
+            session._soul_choice = {"action_type": soul_mode}
+
         if not text.strip() and not choice_id:
             text = "继续推进剧情"
 
@@ -563,6 +656,15 @@ async def _route_message(
             await session._generation_task
         except asyncio.CancelledError:
             _log.info("player_action 已被中止（abort_generation 已发送中止事件）")
+        except Exception as exc:
+            _log.error("player_action 异常: %s", exc)
+            try:
+                await ws_manager.send_json(websocket, {
+                    "type": "error",
+                    "payload": {"code": "PIPELINE_FAILED", "message": str(exc)},
+                })
+            except Exception:
+                pass
         finally:
             session._generation_in_progress = False
             session._generation_task = None
@@ -610,72 +712,6 @@ async def _route_message(
             "payload": {"slot": slot, "success": ok},
         })
 
-    elif msg_type == "upload_novel":
-        # 上传小说前检查
-        can_switch, reason = session.can_switch_novel()
-        if not can_switch:
-            await ws_manager.send_json(websocket, {
-                "type": "error",
-                "payload": {
-                    "code": "CANNOT_SWITCH_MID_GAME",
-                    "message": reason,
-                },
-            })
-            return
-
-        filename = str(payload.get("filename", "unknown.txt"))
-        content = str(payload.get("content", ""))
-        if content:
-            from server.novel_loader import NovelLoader
-            loader = NovelLoader()
-            # 优先尝试 LLM 抽取（需要 pipeline 的 provider）
-            if session.pipeline:
-                try:
-                    provider = session.pipeline._get_provider_for_tier("medium")
-                except Exception:
-                    provider = None
-
-                if provider:
-                    canon_data = await loader.extract_canon_with_llm(provider, content, filename)
-                else:
-                    canon_data = await loader.extract_canon_from_text(content, filename)
-            else:
-                canon_data = await loader.extract_canon_from_text(content, filename)
-            if canon_data:
-                # ── 持久化：保存 TXT 原文 + Canon JSON 到磁盘 ──
-                from server.paths import NOVEL_DIR as _NOVEL_DIR
-                novel_dir = _NOVEL_DIR
-                novel_dir.mkdir(exist_ok=True)
-
-                novel_title = canon_data.get("title", filename.rsplit(".", 1)[0])
-                safe_name = "".join(c for c in novel_title if c.isalnum() or c in "._- ()（）")
-                if not safe_name:
-                    safe_name = "uploaded_novel"
-
-                # 保存 TXT 原文
-                txt_path = novel_dir / f"{safe_name}.txt"
-                try:
-                    with open(txt_path, "w", encoding="utf-8") as f:
-                        f.write(content)
-                    _log.info("TXT 原文已保存: %s", txt_path)
-                except Exception:
-                    pass  # TXT 保存失败不阻断主流程
-
-                # 保存 Canon JSON
-                loader.save_canon_json(canon_data, novel_title)
-
-                session.world_state.canon = canon_data
-                session.current_novel = filename
-                await ws_manager.send_json(websocket, {
-                    "type": "canon_ready",
-                    "payload": session.canon_ready_payload(),
-                })
-            else:
-                await ws_manager.send_json(websocket, {
-                    "type": "error",
-                    "payload": {"code": "CANON_FAILED", "message": "无法从文本中提取 Canon 数据"},
-                })
-
     elif msg_type == "skip_typing":
         # 跳过前端打字机动画 — 这由前端处理，服务端只需确认
         await ws_manager.send_json(websocket, {
@@ -703,12 +739,335 @@ async def _route_message(
                 "payload": {"code": "CONFIG_FAILED", "message": str(exc)},
             })
 
+    # ═══════════════════════════════════════════════════
+    # 提供者选择（启动时选模型）
+    # ═══════════════════════════════════════════════════
+
+    elif msg_type == "get_providers":
+        """前端启动时获取可选提供者列表"""
+        try:
+            from server.config.paths import CONFIG_PATH
+
+            # 从现有 tier 配置中读取 Ollama 端点（不可硬编码）
+            ollama_endpoint = ""
+            if CONFIG_PATH.exists():
+                with open(CONFIG_PATH, "r", encoding="utf-8") as _f:
+                    raw = _yaml.safe_load(_f) or {}
+                raw_providers = raw.get("providers", {}) or {}
+                for tname in ("strong", "medium", "light"):
+                    t = raw_providers.get(tname, {})
+                    if isinstance(t, dict) and t.get("type") == "ollama" and t.get("endpoint"):
+                        ollama_endpoint = t["endpoint"]
+                        break
+
+            # DeepSeek 硬编码，Ollama 端点从 config 读取
+            templates = {
+                "deepseek": {
+                    "name": "deepseek",
+                    "type": "deepseek",
+                    "endpoint": "https://api.deepseek.com",
+                    "has_key": False,
+                    "timeout": 120,
+                },
+                "ollama": {
+                    "name": "ollama",
+                    "type": "ollama",
+                    "endpoint": ollama_endpoint or "http://127.0.0.1:11434",
+                    "has_key": False,
+                    "timeout": 120,
+                },
+            }
+            await ws_manager.send_json(websocket, {
+                "type": "providers_list",
+                "payload": {"providers": templates},
+            })
+        except Exception as exc:
+            await ws_manager.send_json(websocket, {
+                "type": "error",
+                "payload": {"code": "CONFIG_READ_FAILED", "message": str(exc)},
+            })
+
+    elif msg_type == "set_provider":
+        """用户选定提供者后应用到所有 tier"""
+        provider_name = str(payload.get("provider", ""))
+        model_name = str(payload.get("model", ""))
+        api_key = str(payload.get("api_key", ""))
+
+        if not provider_name:
+            await ws_manager.send_json(websocket, {
+                "type": "error",
+                "payload": {"code": "INVALID_REQUEST", "message": "未指定提供者"},
+            })
+            return
+
+        try:
+            # 获取模板配置
+            # DeepSeek: 硬编码；Ollama: 端点从现有 tier 读取（不可硬编码）
+            from server.config.paths import CONFIG_PATH
+
+            if provider_name == "deepseek":
+                template = {"type": "deepseek", "endpoint": "https://api.deepseek.com"}
+            elif provider_name == "ollama":
+                # 从现有 tier 配置中读端点
+                ollama_endpoint = ""
+                if CONFIG_PATH.exists():
+                    with open(CONFIG_PATH, "r", encoding="utf-8") as _f:
+                        raw = _yaml.safe_load(_f) or {}
+                    raw_providers = raw.get("providers", {}) or {}
+                    for tname in ("strong", "medium", "light"):
+                        t = raw_providers.get(tname, {})
+                        if isinstance(t, dict) and t.get("endpoint"):
+                            ollama_endpoint = t["endpoint"]
+                            break
+                template = {"type": "ollama", "endpoint": ollama_endpoint or "http://127.0.0.1:11434"}
+            else:
+                raise ValueError(f"未知提供者: {provider_name}")
+
+            if not template.get("endpoint"):
+                raise ValueError(f"提供者 {provider_name} 缺少端点地址")
+
+            # 构建三层配置：保留 config.yaml 中已有的温度/token/超时，
+            # 仅覆盖 type/endpoint/model（用户选定部分）
+            prov_type = template.get("type", "ollama")
+            endpoint = template.get("endpoint", "")
+            tier_providers = {}
+            # 读取 config 中的现有 provider 配置
+            existing_providers = (raw.get("providers", {}) if CONFIG_PATH.exists() else {}) or {}
+            for tier_key in ("strong", "medium", "light"):
+                existing = existing_providers.get(tier_key, {}) if isinstance(existing_providers.get(tier_key), dict) else {}
+                tier_providers[tier_key] = {
+                    "type": prov_type,
+                    "endpoint": endpoint,
+                    "model": model_name or existing.get("model", ""),
+                    "temperature": existing.get("temperature", 0.7 if tier_key == "strong" else (0.7 if tier_key == "medium" else 0.5)),
+                    "max_tokens": existing.get("max_tokens", 4096 if tier_key == "strong" else (2048 if tier_key == "medium" else 1024)),
+                    "api_key": api_key or existing.get("api_key", ""),
+                    "timeout": existing.get("timeout", 120),
+                }
+
+            # 应用配置
+            await session.update_config(providers=tier_providers, api_key="")
+
+            _log.info("提供者已切换: %s → 模型=%s", provider_name, model_name or template.get("model", ""))
+
+            await ws_manager.send_json(websocket, {
+                "type": "provider_set",
+                "payload": {
+                    "success": True,
+                    "provider": provider_name,
+                    "model": model_name or template.get("model", ""),
+                },
+            })
+        except Exception as exc:
+            await ws_manager.send_json(websocket, {
+                "type": "error",
+                "payload": {"code": "SET_PROVIDER_FAILED", "message": str(exc)},
+            })
+
+    # ═══════════════════════════════════════════════════
+    # 模型查询（动态获取可用模型列表）
+    # ═══════════════════════════════════════════════════
+
+    elif msg_type == "fetch_models":
+        """用户配置完成后查询可用模型列表
+
+        Payload: { type, endpoint, api_key }
+        Response: { models: [str], error: str }
+        """
+        prov_type = str(payload.get("type", ""))
+        endpoint = str(payload.get("endpoint", ""))
+        api_key = str(payload.get("api_key", ""))
+
+        if not prov_type or not endpoint:
+            await ws_manager.send_json(websocket, {
+                "type": "model_list",
+                "payload": {"models": [], "error": "缺少 type 或 endpoint"},
+            })
+            return
+
+        try:
+            from server.manana.providers import ProviderFactory
+            config = {
+                "type": prov_type,
+                "endpoint": endpoint,
+                "api_key": api_key,
+                "timeout": 10,
+            }
+            provider = ProviderFactory.create(prov_type, config)
+            if not provider:
+                await ws_manager.send_json(websocket, {
+                    "type": "model_list",
+                    "payload": {"models": [], "error": f"不支持的提供者类型: {prov_type}"},
+                })
+                return
+
+            models, error = await provider.list_models()
+            # 统一转小写：部分 API（如 DeepSeek）返回的模型名带大写但接口只接受小写
+            models = [m.lower() for m in models]
+            await ws_manager.send_json(websocket, {
+                "type": "model_list",
+                "payload": {"models": models, "error": error},
+            })
+        except Exception as exc:
+            await ws_manager.send_json(websocket, {
+                "type": "model_list",
+                "payload": {"models": [], "error": str(exc)},
+            })
+
     elif msg_type == "ping":
-        # 心跳消息 — 用于检测连接状态
+        # 心跳消息 — 更新活动时间 + 返回 pong
+        sid = ws_manager.get_session_id(websocket)
+        if sid:
+            await ws_manager.mark_active(sid)
         await ws_manager.send_json(websocket, {
             "type": "pong",
             "payload": {"timestamp": asyncio.get_event_loop().time()},
         })
+
+    # ═══════════════════════════════════════════════════
+    # 灵魂附生 — 角色选择 & 游戏开始
+    # ═══════════════════════════════════════════════════
+
+    elif msg_type == "request_character_list":
+        """前端选角界面请求角色清单"""
+        canon = getattr(session.world_state, "canon", None) or {}
+        # ★ 手动模式：world_state.canon 可能为空，从 canon_manager 获取
+        if not canon.get("characters"):
+            running = session.canon_manager.get_running_canon()
+            if running:
+                canon = running
+        if not canon.get("characters"):
+            await ws_manager.send_json(websocket, {
+                "type": "error",
+                "payload": {"code": "NO_CANON_DATA", "message": "当前无加载的 Canon 数据"},
+            })
+            return
+        from server.data.novel_loader import NovelLoader
+        loader = NovelLoader()
+        char_list = loader.get_character_list_for_selection(canon)
+        await ws_manager.send_json(websocket, {
+            "type": "character_list",
+            "payload": {"characters": char_list},
+        })
+
+    elif msg_type == "request_game_start_soul":
+        """玩家确认选角后启动灵魂附生模式"""
+        protagonist_id = str(payload.get("protagonist_id", ""))
+        if not protagonist_id:
+            await ws_manager.send_json(websocket, {
+                "type": "error",
+                "payload": {"code": "INVALID_REQUEST", "message": "未指定附身角色"},
+            })
+            return
+
+        canon = getattr(session.world_state, "canon", None) or {}
+        # ★ 手动模式：world_state.canon 可能为空，从 canon_manager 获取
+        if not canon.get("characters"):
+            running = session.canon_manager.get_running_canon()
+            if running:
+                canon = running
+        if not canon.get("characters"):
+            await ws_manager.send_json(websocket, {
+                "type": "error",
+                "payload": {"code": "NO_CANON_DATA", "message": "当前无加载的 Canon 数据"},
+            })
+            return
+
+        # 检查是否可切换（已进入灵魂模式则跳过检查）
+        if session.world_state.game_mode != "soul_possession":
+            can_switch, reason = session.can_switch_novel()
+            if not can_switch:
+                await ws_manager.send_json(websocket, {
+                    "type": "error",
+                    "payload": {"code": "ALREADY_IN_SOUL_MODE", "message": reason or "已在灵魂附生模式中"},
+                })
+                return
+
+        # 初始化灵魂附生
+        from server.data.novel_loader import NovelLoader
+        loader = NovelLoader()
+        enhanced_canon = loader.load_canon_with_memory(canon)
+
+        session.world_state.canon = enhanced_canon
+        session.world_state.game_mode = "soul_possession"
+        session._soul_protagonist_id = protagonist_id
+        session._init_soul_possession(enhanced_canon, protagonist_id)
+
+        _log.info("灵魂附生启动: 主角=%s", protagonist_id)
+
+        await ws_manager.send_json(websocket, {
+            "type": "game_started_soul",
+            "payload": {
+                "protagonist_id": protagonist_id,
+                "canon": session.canon_ready_payload(),
+                "soul_state": session._get_soul_state_payload(),
+            },
+        })
+
+        # 灵魂附生模式：自动生成前 10 拍叙事（人格积累期）
+        session._generation_in_progress = True
+        async def _send_init_callback(chunk: dict) -> None:
+            await ws_manager.send_json(websocket, chunk)
+        for i in range(10):
+            try:
+                session._generation_task = asyncio.create_task(
+                    session.stream_beat("", _send_init_callback)
+                )
+                await session._generation_task
+            except asyncio.CancelledError:
+                _log.info("灵魂附生第 %d 拍生成被取消", i + 1)
+                break
+            except Exception as exc:
+                _log.error("灵魂附生第 %d 拍生成异常: %s", i + 1, exc)
+                break
+        session._generation_in_progress = False
+        session._generation_task = None
+
+    elif msg_type == "request_soul_state":
+        """前端主动请求灵魂状态刷新"""
+        soul_payload = session._get_soul_state_payload()
+        await ws_manager.send_json(websocket, {
+            "type": "soul_state_update",
+            "payload": soul_payload,
+        })
+
+    elif msg_type == "read_memory":
+        agent_id = str(payload.get("agent_id", ""))
+        query = str(payload.get("query", ""))
+        mm = getattr(session.world_state, '_memory_manager', None)
+        if mm and agent_id:
+            entries = mm.retrieve(agent_id, query, top_k=5, current_beat=session.beat_count)
+            results = [e.to_dict() for e in entries]
+        else:
+            results = []
+        await ws_manager.send_json(websocket, {
+            "type": "memory_read_result",
+            "payload": {"agent_id": agent_id, "entries": results},
+        })
+
+    elif msg_type == "write_memory":
+        agent_id = str(payload.get("agent_id", ""))
+        content = str(payload.get("content", ""))
+        importance = float(payload.get("importance", 5.0))
+        mm = getattr(session.world_state, '_memory_manager', None)
+        if mm and agent_id and content:
+            # Use add_decision helper (avoids MemoryEntry import
+            # which conflicts with memory/ package directory)
+            mm.add_decision(
+                agent_id, content,
+                timestamp=session.beat_count,
+                importance=importance,
+                source="write_memory WS",
+            )
+            await ws_manager.send_json(websocket, {
+                "type": "memory_write_result",
+                "payload": {"success": True, "agent_id": agent_id},
+            })
+        else:
+            await ws_manager.send_json(websocket, {
+                "type": "memory_write_result",
+                "payload": {"success": False, "message": "缺少参数"},
+            })
 
     else:
         await ws_manager.send_json(websocket, {

@@ -3,7 +3,7 @@
 The central orchestrator that executes the complete 5-layer narrative pipeline:
 
   L0: ContextBuilder — scene context assembly
-  L1: SceneDirector — beat planning (v4: Best-of-3, Multi-View)
+  L1: SceneDirector — beat planning (v4: Best-of-N, Multi-View)
   L2R1: MotivationEngine — per-character motivation (N-parallel)
   L2R2: DialogueWeaver + ActionDirector — dialogue & action (N×2 parallel)
   L3: SceneComposer — narrative prose weaving (v4: refinement loop)
@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 from copy import deepcopy
 from typing import Any, Callable, Optional
 
@@ -41,6 +42,7 @@ from .agents import (
     RoleReflector,
     SceneComposer,
     SceneDirector,
+    SoulChoiceGenerator,
     StateExtractor,
     ThreadManager,
 )
@@ -59,6 +61,7 @@ from .utils import (
     log_warning,
     set_current_beat,
 )
+from server.config.exceptions import PipelineError, ProviderError
 
 _log = get_logger("MaNA.Pipeline")
 
@@ -126,7 +129,7 @@ class MananaPipeline:
         
         # 如果所有tier都失败了，抛出异常
         if len(failed_tiers) == 3:
-            raise RuntimeError(f"All provider tiers failed to initialize: {failed_tiers}")
+            raise ProviderError(f"All provider tiers failed to initialize: {failed_tiers}")
         elif failed_tiers:
             _log.warning("Some provider tiers failed to initialize: %s", failed_tiers)
 
@@ -199,7 +202,6 @@ class MananaPipeline:
             return transitions[0] if transitions else "exploration"
         elif mode_duration >= 3:
             # 25% 几率轮换
-            import random
             if random.random() < 0.25:
                 transitions = MananaPipeline._MODE_TRANSITIONS.get(current_mode, MananaPipeline._NARRATIVE_MODES)
                 chosen = random.choice(transitions)
@@ -217,6 +219,8 @@ class MananaPipeline:
         player_action: str,
         world_state: "WorldState",
         progress_cb: Optional[Callable[[str, str], Any]] = None,
+        soul_choice: Optional[dict] = None,
+        needs_soul_choices: bool = True,
     ) -> dict:
         """Execute a complete narrative beat.
 
@@ -236,91 +240,237 @@ class MananaPipeline:
                 "audit": dict,
             }
         """
+        # ── 起始 ──
+        beat_id = self._start_beat()
+        self._needs_soul_choices = needs_soul_choices
+
+        # ── L0: 上下文 ──
+        ctx, ws_dict = await self._build_beat_context(
+            player_action, world_state, beat_id, progress_cb, soul_choice,
+        )
+
+        # ── L1: Director + 模式追踪 + 复杂度 ──
+        plan = await self._run_l1_director(ctx, progress_cb)
+
+        log_layer("L1", f"SceneDirector 完成 — 模式: {plan.get('narrative_mode', '?')}")
+        self._update_mode_tracking(plan)
+        self._apply_complexity_scoring(ctx, plan)
+
+        # ── L1b: 连续性审计 ──
+        cc_verdict, plan = await self._run_l1b_continuity_check(
+            plan, ctx, player_action, ws_dict, progress_cb,
+        )
+
+        # ── L2: 动机 + 对话/动作 + 反思 ──
+        motivation_results = await self._run_motivations_parallel(ctx, plan, progress_cb)
+        character_outputs = await self._run_dialogue_actions_parallel(ctx, plan, motivation_results, progress_cb)
+        rr_results = await self._run_l2r3_role_reflection(
+            character_outputs, ws_dict, plan, progress_cb,
+            ctx=ctx, motivation_results=motivation_results,
+        )
+
+        # ── L3: Composer ──
+        narrative_text, composer_raw = await self._run_l3_composer(
+            ctx, character_outputs, plan, progress_cb,
+        )
+
+        # ── L3b ∥ L4a + L4b: 并行审计 + ThreadManager ──
+        audit_result, state_patch_result, thread_updates = await self._run_l3b_l4a_parallel(
+            narrative_text, plan, ctx, character_outputs, ws_dict, world_state, beat_id, progress_cb,
+        )
+
+        # ── Post-beat ──
+        result_data = await self._finalize_beat(
+            world_state, ws_dict, plan, character_outputs,
+            narrative_text, composer_raw, audit_result, state_patch_result,
+            thread_updates, ctx, beat_id, progress_cb, cc_verdict, rr_results,
+        )
+
+        return await self._end_beat(result_data, beat_id)
+
+    # ------------------------------------------------------------------
+    # Post-beat finalization
+    # ------------------------------------------------------------------
+
+    async def _build_soul_choices(self, ctx: dict, narrative_text: str, plan: dict) -> dict:
+        """调用 SoulChoiceGenerator (light) 生成本我/贴合行动选项。
+
+        同时保留 Arbiter 的决策元数据。
+        """
+        arbiter_decision = ctx.get("soul", {}).get("decision", {}) or {}
+        # 从 ctx 提取主角信息
+        chars = ctx.get("characters", []) or []
+        protagonist_name = "主角"
+        proto_personality = ""
+        for c in chars:
+            if not c.get("is_dynamic", False):
+                protagonist_name = str(c.get("name", "主角"))
+                proto_personality = str(c.get("personality", ""))
+                break
+
+        generator = SoulChoiceGenerator()
+        provider = self._create_independent_provider("light")
+        if not provider:
+            return arbiter_decision
+        try:
+            generator.configure(provider)
+            input_data = {
+                "narrative_text": narrative_text,
+                "protagonist_name": protagonist_name,
+                "protagonist_personality": proto_personality,
+                "scene_summary": str(plan.get("beat_summary", "")),
+                "action_hints": plan.get("action_hints", []) or [],
+            }
+            result = await generator.run(input_data)
+            if result.get("ok", False):
+                parsed = generator._parse_json_response(result)
+                choices = parsed.get("data", {}) or {}
+                return {
+                    "action_type": arbiter_decision.get("action_type", ""),
+                    "dissonance_impact": arbiter_decision.get("dissonance_impact", 0),
+                    "dominant_soul": arbiter_decision.get("dominant_soul", ""),
+                    "authentic": choices.get("authentic", []) or [],
+                    "conforming": choices.get("conforming", []) or [],
+                }
+        finally:
+            await provider.cleanup()
+        return arbiter_decision
+
+    async def _finalize_beat(
+        self,
+        world_state: "WorldState",
+        ws_dict: dict,
+        plan: dict,
+        character_outputs: list,
+        narrative_text: str,
+        composer_raw: dict,
+        audit_result: dict,
+        state_patch_result: dict,
+        thread_updates: list,
+        ctx: dict,
+        beat_id: str,
+        progress_cb: Optional[Callable[[str, str], Any]] = None,
+        cc_verdict: str = "",
+        rr_results: list = None,
+    ) -> dict:
+        """Post-beat: 应用状态变更 + 记录历史 + Oracle + 组装结果 + Reward。
+
+        从 run_beat 最后的 ~80 行内联代码提取。
+        """
+        rr_results = rr_results or []
+
+        # ── Apply state changes ──
+        state_patch: dict = state_patch_result.get("raw", {}) or {}
+        if state_patch:
+            apply_state_patch(world_state, state_patch)
+
+        # ── Apply thread changes ──
+        world_state.apply_thread_updates(thread_updates)
+
+        # ── Narrative history + memory ──
+        summary = str(state_patch.get("narrative_summary", narrative_text[:100]))
+        if not summary:
+            summary = narrative_text[:100]
+        world_state.add_narrative_event(summary, beat_id)
+        mem_entry = str(state_patch.get("scene_memory_entry", narrative_text[:60]))
+        if mem_entry:
+            world_state.add_scene_memory(mem_entry)
+
+        # ── L5: Oracle (conditional) ──
+        if self._beat_count % self._config.get_oracle_interval() == 0:
+            log_layer("L5", f"ReflectionOracle 触发 (beat {self._beat_count})")
+            if progress_cb:
+                await progress_cb("oracle", "神域正在介入...")
+            await self._run_oracle(ctx, ws_dict)
+
+        # ── v4: Micro-Oracle ──
+        mo_feedback: dict = {}
+        if self._config.is_feature_enabled("micro_oracle"):
+            mo_summary = str(state_patch.get("narrative_summary", narrative_text[:100]))
+            if not mo_summary:
+                mo_summary = narrative_text[:100]
+            mo_feedback = await self._run_micro_oracle(narrative_text, mo_summary, ctx)
+
+        # ── Trace ──（保留框架，实际由 Godot 版使用时接入）
+        self._last_narrative = narrative_text
+        self._last_ending_hook = str(composer_raw.get("ending_hook", "") or "")
+        self._last_action_hints = list(composer_raw.get("action_hints", []) or [])
+
+        # ── 写入本拍记忆 ──
+        if self._config.is_feature_enabled("memory_system"):
+            await self._write_beat_memories(
+                world_state, plan, character_outputs, narrative_text,
+                audit_result, cc_verdict, rr_results,
+            )
+
+        result_data = {
+            "narrative_text": narrative_text,
+            "action_hints": composer_raw.get("action_hints", []) or [],
+            "ending_hook": composer_raw.get("ending_hook", "") or "",
+            "music_mood": composer_raw.get("music_mood", "") or "",
+            "choices": composer_raw.get("choices", []) or [],
+            "state_patch": state_patch,
+            "audit": audit_result,
+            "micro_oracle": {
+                "system_health": mo_feedback.get("system_health", ""),
+                "suggestions": mo_feedback.get("suggestions", []),
+                "one_line_feedback": mo_feedback.get("one_line_feedback", ""),
+            } if mo_feedback else {},
+            # ★ 灵魂附生数据 — 调用 SoulChoiceGenerator 生成上下文感知选项
+            "soul_decision": (
+                await self._build_soul_choices(ctx, narrative_text, plan)
+                if getattr(self, '_needs_soul_choices', True)
+                else ctx.get("soul", {}).get("decision", {})
+            ),
+            "soul_inner_voice": ctx.get("soul", {}).get("inner_voice", {}),
+        }
+
+        # ── Reward computation (阶段一) ──
+        if self._reward_tracker:
+            reward_record = self._reward_tracker.compute_and_log(result_data, beat_id, self._beat_count)
+            result_data["reward"] = reward_record.get("reward", 0.0)
+            result_data["reward_components"] = reward_record.get("components", {})
+        else:
+            result_data["reward"] = 0.0
+
+        # ── Prompt optimization trigger (阶段三) ──
+        if self._prompt_optimizer:
+            self._prompt_optimizer.maybe_run(self._beat_count)
+
+        return result_data
+
+    # ------------------------------------------------------------------
+    # Beat lifecycle
+    # ------------------------------------------------------------------
+
+    def _start_beat(self) -> str:
+        """初始化 beat 计数器、ID 和日志。"""
         self._beat_count += 1
         beat_id = f"beat_{self._beat_count:03d}"
         set_current_beat(beat_id)
-
         _log.info("=== Beat %s START ===", beat_id)
+        return beat_id
 
-        # ── L0: Context ──
-        log_layer("L0", "ContextBuilder 启动")
-        if progress_cb:
-            await progress_cb("context_builder", "正在构建场景上下文...")
-        # 兼容 dict 和 WorldState 对象两种入参
-        if isinstance(world_state, dict):
-            ws_dict = world_state
-        else:
-            ws_dict = world_state.to_dict()
-        ctx = ContextBuilder.build(player_action, ws_dict, beat_id=beat_id)
+    async def _end_beat(self, result_data: dict, beat_id: str) -> dict:
+        """收尾：日志、重连检查、返回结果。"""
+        _log.info("=== Beat %s COMPLETE ===", beat_id)
+        if self._pending_reconnect:
+            await self._do_reconnect()
+        return result_data
 
-        # ── 注入记忆到场景上下文（记忆系统启用时） ──
-        if self._config.is_feature_enabled("memory_system"):
-            ctx = await self._inject_memory_to_ctx(ctx, ws_dict, world_state)
+    def _apply_complexity_scoring(self, ctx: dict, plan: dict) -> None:
+        """如果 dynamic_tier 启用，计算复杂度并应用层级覆盖。"""
+        if self._config.is_feature_enabled("dynamic_tier"):
+            complexity = self._compute_complexity(ctx, plan)
+            log_layer("L1", f"复杂度评分: {complexity:.2f}")
+            self._apply_tier_overrides(complexity)
 
-        # ── Conflict seed injection（T02: 注入 Canon 冲突种子） ──
-        if not isinstance(world_state, dict):
-            conflict_pool = getattr(world_state, "conflict_pool", None)
-            if conflict_pool is not None:
-                seeds = conflict_pool.get_random_combination(2)
-                if seeds:
-                    ctx["available_conflicts"] = seeds
-                    _log.debug("注入了 %d 个冲突种子到场景上下文", len(seeds))
+    # ------------------------------------------------------------------
+    # Mode Tracking
+    # ------------------------------------------------------------------
 
-        # ── T04: 注入模式轮换上下文 ──
-        ctx["narrative_mode"] = self._current_narrative_mode
-        ctx["mode_duration"] = self._mode_duration
-        suggested = self._get_suggested_next_modes(self._current_narrative_mode)
-        if suggested:
-            ctx["suggested_next_modes"] = suggested
-        log_layer("L0", f"ContextBuilder 完成 ({len(ctx.get('characters', []))} 角色, "
-                  f"{len(ctx.get('active_threads', []))} 线索)")
-
-        # ── v4: Context augmentation (semantic_selection + vector_memory + micro_feedback) ──
-        if self._config.is_feature_enabled("semantic_selection") or \
-           self._config.get_vector_memory_config().get("enable_vector_memory", False):
-            ctx = await self._augment_context(ctx)
-
-        # ── 注入上拍结尾预告到场景上下文（让下一拍的 Director 看到上一拍的 ending_hook） ──
-        if self._last_ending_hook:
-            ctx["prev_ending_hook"] = self._last_ending_hook
-            ctx["prev_action_hints"] = list(self._last_action_hints)
-
-        # ── L1: Director ──
-        plan: dict = {}
-        if self._config.is_feature_enabled("multi_view") and self._config.is_feature_enabled("best_of_3"):
-            log_layer("L1", "SceneDirector 启动 (multi_view + best_of_3)")
-            if progress_cb:
-                await progress_cb("scene_director", "导演正在编排剧情...")
-            plan = await self._run_director_multi_view(ctx)
-        elif self._config.is_feature_enabled("best_of_3"):
-            log_layer("L1", "SceneDirector 启动 (best_of_3)")
-            if progress_cb:
-                await progress_cb("scene_director", "导演正在编排剧情...")
-            best_plan = await self._run_director_best_of_3(ctx)
-            plan = best_plan.get("raw", {}) or {}
-            if not plan and best_plan:
-                plan = best_plan
-        else:
-            log_layer("L1", "SceneDirector 启动")
-            if progress_cb:
-                await progress_cb("scene_director", "导演正在编排剧情...")
-            director = SceneDirector()
-            director.configure(self._get_provider_for_tier("strong"))
-            director_input = {"scene_context": ctx}
-            beat_plan_result = await director.run(director_input)
-            if not beat_plan_result.get("ok", False):
-                err = str(beat_plan_result.get("error", "Director failed"))
-                log_error("SceneDirector", err)
-                return {"error": "Director failed: " + err}
-            plan = beat_plan_result.get("raw", {}) or {}
-
-        if not plan:
-            log_error("SceneDirector", "Director produced empty plan")
-            return {"error": "Director failed: empty plan"}
-
-        log_layer("L1", f"SceneDirector 完成 — 模式: {plan.get('narrative_mode', '?')}")
-
-        # ── T04: 更新模式追踪（Director 可能主动切换模式） ──
+    def _update_mode_tracking(self, plan: dict) -> None:
+        """更新叙事模式追踪（Director 可能主动切换模式）。"""
         chosen_mode = str(plan.get("narrative_mode", self._current_narrative_mode))
         if chosen_mode and chosen_mode in self._NARRATIVE_MODES:
             if chosen_mode == self._current_narrative_mode:
@@ -329,162 +479,76 @@ class MananaPipeline:
                 self._current_narrative_mode = chosen_mode
                 self._mode_duration = 1
         else:
-            # 如果 Director 给出非法模式，保持当前模式并累加
             self._mode_duration += 1
 
-        # ── v4: Complexity scoring + dynamic tier ──
-        if self._config.is_feature_enabled("dynamic_tier"):
-            complexity = self._compute_complexity(ctx, plan)
-            log_layer("L1", f"复杂度评分: {complexity:.2f}")
-            self._apply_tier_overrides(complexity)
+    # ------------------------------------------------------------------
+    # L3: SceneComposer
+    # ------------------------------------------------------------------
 
-        # ── L1b: ContinuityChecker（连续叙事审计） ──
-        if self._config.is_feature_enabled("continuity_check"):
-            log_layer("L1b", "ContinuityChecker 启动")
-            if progress_cb:
-                await progress_cb("continuity_checker", "审计叙事连贯性...")
-            cc_result = await self._run_continuity_check(plan, ctx, player_action, ws_dict)
-            cc_verdict = str(cc_result.get("verdict", "APPROVED"))
+    async def _run_l3_composer(
+        self,
+        ctx: dict,
+        character_outputs: list,
+        plan: dict,
+        progress_cb: Optional[Callable[[str, str], Any]] = None,
+    ) -> tuple[str, dict]:
+        """L3: SceneComposer — 带/不带精炼循环。
 
-            cc_retry = 0
-            while cc_verdict == "REJECTED" and cc_retry < self._config.get_continuity_max_rewrite():
-                cc_retry += 1
-                _log.info(f"L1b 打回重做 (第{cc_retry}次)...")
-                # 带着约束重新跑 Director
-                director = SceneDirector()
-                director.configure(self._get_provider_for_tier("strong"))
-                director_input = {"scene_context": ctx,
-                                  "continuity_constraints": cc_result.get("conflict_details", [])}
-                beat_plan_result = await director.run(director_input)
-                if beat_plan_result.get("ok", False):
-                    plan = beat_plan_result.get("raw", {}) or {}
-                cc_result = await self._run_continuity_check(plan, ctx, player_action, ws_dict)
-                cc_verdict = str(cc_result.get("verdict", "APPROVED"))
-
-            if cc_verdict == "REJECTED":
-                log_warning("ContinuityChecker", f"L1b 超过重做上限，强制通过")
-                cc_verdict = "APPROVED"
-
-            log_layer("L1b", f"ContinuityChecker 完成 — {cc_verdict}")
-
-        # ── L2R1: MotivationEngine (N parallel) ──
-        featured_chars: list = plan.get("featured_characters", []) or []
-        log_layer("L2R1", f"MotivationEngine 启动 ({len(featured_chars)} 角色)")
-        if progress_cb:
-            await progress_cb("motivation", "演员正在酝酿动机...")
-        motivation_results = await self._run_motivations_parallel(ctx, plan)
-        log_layer("L2R1", f"MotivationEngine 完成 ({len(motivation_results)} 结果)")
-
-        # ── L2R2: DialogueWeaver + ActionDirector (N×2 parallel) ──
-        log_layer("L2R2", "DialogueWeaver/ActionDirector 启动")
-        if progress_cb:
-            await progress_cb("dialogue", "演员正在对戏...")
-        character_outputs = await self._run_dialogue_actions_parallel(ctx, plan, motivation_results)
-        log_layer("L2R2", f"DialogueWeaver/ActionDirector 完成 ({len(character_outputs)} 角色输出)")
-
-        # ── L2R3: RoleReflector（角色过渡反思） ──
-        if self._config.is_feature_enabled("role_reflection"):
-            log_layer("L2R3", "RoleReflector 启动")
-            if progress_cb:
-                await progress_cb("role_reflector", "演员正在反思表演...")
-            rr_result = await self._run_role_reflection(character_outputs, ws_dict, plan)
-            rr_results: list = rr_result.get("results", []) or []
-
-            # 处理 NEED_TRANSITION: 附加过渡
-            for rr in rr_results:
-                if rr.get("verdict") == "NEED_TRANSITION":
-                    char_id = rr.get("char_id", "")
-                    transition_dialogue = rr.get("transition_dialogue", "")
-                    transition_action = rr.get("transition_action", "")
-                    for co in character_outputs:
-                        if co.get("character_id", co.get("char_id", "")) == char_id:
-                            if transition_dialogue:
-                                if not isinstance(co.get("dialogue"), list):
-                                    co["dialogue"] = []
-                                co["dialogue"].append({
-                                    "text": transition_dialogue,
-                                    "tone": "过渡",
-                                    "target": "none",
-                                    "subtext": "过渡衔接",
-                                })
-                            if transition_action:
-                                if not isinstance(co.get("actions"), list):
-                                    co["actions"] = []
-                                co["actions"].append({
-                                    "type": "transition",
-                                    "description": transition_action,
-                                    "target": "none",
-                                    "intensity": "subtle",
-                                })
-                            break
-
-            # 处理 NEED_REWRITE: 打回 L2R2 重做
-            rewrite_chars = [r.get("char_id", "") for r in rr_results
-                             if r.get("verdict") == "NEED_REWRITE"]
-            rewrite_count = 0
-            while rewrite_chars and rewrite_count < 2:
-                rewrite_count += 1
-                _log.info(f"L2R3 打回重做第{rewrite_count}次: {rewrite_chars}")
-                # 重新跑受影响的角色的 L2R2
-                new_outputs = []
-                for co in character_outputs:
-                    cid = co.get("character_id", co.get("char_id", ""))
-                    if cid in rewrite_chars:
-                        constraint = next(
-                            (r.get("rewrite_constraint", "") for r in rr_results
-                             if r.get("char_id") == cid), "")
-                        new_co = await self._rerun_character_performance(
-                            cid, ctx, plan, motivation_results, constraint)
-                        if new_co:
-                            new_outputs.append(new_co)
-                        else:
-                            new_outputs.append(co)
-                    else:
-                        new_outputs.append(co)
-                character_outputs = new_outputs
-
-                # 重新跑 RoleReflector
-                rr_result = await self._run_role_reflection(character_outputs, ws_dict, plan)
-                rr_results = rr_result.get("results", []) or []
-                rewrite_chars = [r.get("char_id", "") for r in rr_results
-                                 if r.get("verdict") == "NEED_REWRITE"]
-
-            if rewrite_chars:
-                log_warning("RoleReflector", f"L2R3 超过重做上限，遗留: {rewrite_chars}")
-
-            log_layer("L2R3", f"RoleReflector 完成 ({len(rr_results)} 角色)")
-
-        # ── L3: SceneComposer ──
-        narrative_result: dict = {}
+        Returns:
+            (narrative_text, composer_raw) 成功时。
+        Raises:
+            PipelineError: Composer 失败时。
+        """
         if self._config.is_feature_enabled("refinement"):
             log_layer("L3", "SceneComposer 启动 (精炼循环)")
             if progress_cb:
                 await progress_cb("composer", "编剧正在合成本章...")
-            narrative_result = await self._run_composer_with_refinement(ctx, character_outputs, plan)
+            result = await self._run_composer_with_refinement(ctx, character_outputs, plan)
         else:
             log_layer("L3", "SceneComposer 启动")
             if progress_cb:
                 await progress_cb("composer", "编剧正在合成本章...")
             composer = SceneComposer()
             composer.configure(self._get_provider_for_tier("strong"))
-            # 注入优化提示（阶段三）
             if self._prompt_optimizer:
                 composer._optimization_hints = self._prompt_optimizer.get_latest_hints()
             else:
                 composer._optimization_hints = ""
             composer_input = self._build_composer_input(plan, character_outputs, ctx)
-            narrative_result = await composer.run(composer_input)
+            result = await composer.run(composer_input)
 
-        if not narrative_result.get("ok", False):
-            composer_err = str(narrative_result.get("error", "Composer failed"))
-            log_error("SceneComposer", composer_err)
-            return {"error": "Composer failed: " + composer_err}
+        if not result.get("ok", False):
+            err = str(result.get("error", "Composer failed"))
+            log_error("SceneComposer", err)
+            raise PipelineError(f"L3 composer failed: {err}")
 
-        narrative_text: str = narrative_result.get("content", "") or ""
-        composer_raw: dict = narrative_result.get("raw", {}) or {}
+        raw_content: str = result.get("content", "") or ""
+        composer_raw: dict = result.get("raw", {}) or {}
+        # 剥离叙事正文中的 JSON 后缀
+        narrative_text = SceneComposer._strip_json_suffix(SceneComposer(), raw_content)
         log_layer("L3", f"SceneComposer 完成 ({len(narrative_text)} 字符)")
+        return narrative_text, composer_raw
 
-        # ── L3b ∥ L4a: Auditor + Extractor + CharMgr + LocMgr (四路并行) ──
+    # ------------------------------------------------------------------
+    # L3b ∥ L4a: Auditor + Extractor + CharMgr + LocMgr + L4b ThreadManager
+    # ------------------------------------------------------------------
+
+    async def _run_l3b_l4a_parallel(
+        self,
+        narrative_text: str,
+        plan: dict,
+        ctx: dict,
+        character_outputs: list,
+        ws_dict: dict,
+        world_state: "WorldState",
+        beat_id: str,
+        progress_cb: Optional[Callable[[str, str], Any]] = None,
+    ) -> tuple[dict, dict, list]:
+        """L3b∥L4a: 四路并行（Auditor + Extractor + CharMgr + LocMgr）+ L4b ThreadManager。
+
+        Returns:
+            (audit_result, state_patch_result, thread_updates)
+        """
         log_layer("L3b∥L4a", "Auditor / Extractor / CharMgr / LocMgr 启动 (四路并行)")
         if progress_cb:
             await progress_cb("auditor", "审计员正在验收...")
@@ -502,16 +566,13 @@ class MananaPipeline:
             extractor.run(extractor_input),
         ]
 
-        # CharMgr + LocMgr（当 emergence_system 开启时）
         if self._config.is_feature_enabled("emergence_system"):
             character_mgr = CharacterManager()
             character_mgr.configure(self._get_provider_for_tier("light"))
             location_mgr = LocationManager()
             location_mgr.configure(self._get_provider_for_tier("light"))
-
             character_mgr_input = self._build_character_mgr_input(narrative_text, ws_dict)
             location_mgr_input = self._build_location_mgr_input(narrative_text, ws_dict)
-
             tasks.append(character_mgr.run(character_mgr_input))
             tasks.append(location_mgr.run(location_mgr_input))
 
@@ -520,23 +581,19 @@ class MananaPipeline:
         audit_result = results[0]
         state_patch_result = results[1]
 
-        # 处理涌现实体结果
-        character_mgr_result = {}
-        location_mgr_result = {}
+        # 涌现实体
         if self._config.is_feature_enabled("emergence_system") and len(results) >= 4:
-            character_mgr_result = results[2]
-            location_mgr_result = results[3]
-            await self._process_emergences(world_state, character_mgr_result, location_mgr_result)
+            await self._process_emergences(world_state, results[2], results[3])
 
         log_layer("L3b∥L4a", "Auditor / Extractor / CharMgr / LocMgr 完成")
 
-        # Audit FAIL handling
+        # Audit FAIL 日志
         audit_data: dict = audit_result.get("raw", {}) or {}
         if str(audit_data.get("verdict", "PASS")) not in ("PASS",):
             issues: list = audit_data.get("issues", []) or []
             log_warning("Auditor", f"Beat {beat_id} audit FAIL: {len(issues)} issues")
 
-        # ── L4b: ThreadManager ──
+        # L4b: ThreadManager
         log_layer("L4b", "ThreadManager 启动")
         if progress_cb:
             await progress_cb("thread_manager", "线索管理员正在整理...")
@@ -545,98 +602,201 @@ class MananaPipeline:
         )
         log_layer("L4b", "ThreadManager 完成")
 
-        # ── Apply state changes ──
-        state_patch: dict = state_patch_result.get("raw", {}) or {}
-        if state_patch and not isinstance(world_state, dict):
-            apply_state_patch(world_state, state_patch)
+        return audit_result, state_patch_result, thread_updates
 
-        # ── Apply thread changes ──
-        if not isinstance(world_state, dict):
-            world_state.apply_thread_updates(thread_updates)
+    # ------------------------------------------------------------------
+    # L0: Context Building
+    # ------------------------------------------------------------------
 
-        # ── Narrative history + memory ──
-        summary = str(state_patch.get("narrative_summary", narrative_text[:100]))
-        if not summary:
-            summary = narrative_text[:100]
-        if not isinstance(world_state, dict):
-            world_state.add_narrative_event(summary, beat_id)
-        mem_entry = str(state_patch.get("scene_memory_entry", narrative_text[:60]))
-        if mem_entry:
-            if not isinstance(world_state, dict):
-                world_state.add_scene_memory(mem_entry)
+    async def _build_beat_context(
+        self,
+        player_action: str,
+        world_state: "WorldState",
+        beat_id: str,
+        progress_cb: Optional[Callable[[str, str], Any]] = None,
+        soul_choice: Optional[dict] = None,
+    ) -> tuple[dict, dict]:
+        """L0: 构建 beat 上下文 — ContextBuilder + 记忆注入 + 冲突种子 + 模式轮换 + 增强。
 
-        # ── L5: Oracle (conditional) ──
-        if self._beat_count % self._config.get_oracle_interval() == 0:
-            log_layer("L5", f"ReflectionOracle 触发 (beat {self._beat_count})")
-            if progress_cb:
-                await progress_cb("oracle", "神域正在介入...")
-            await self._run_oracle(ctx, ws_dict)
+        Args:
+            player_action: 玩家输入
+            world_state: WorldState 对象
+            beat_id: 当前 beat 编号
+            progress_cb: 可选的进度回调
 
-        # ── v4: Micro-Oracle ──
-        mo_feedback: dict = {}
-        if self._config.is_feature_enabled("micro_oracle"):
-            mo_summary = str(state_patch.get("narrative_summary", narrative_text[:100]))
-            if not mo_summary:
-                mo_summary = narrative_text[:100]
-            mo_feedback = await self._run_micro_oracle(narrative_text, mo_summary, ctx)
+        Returns:
+            (ctx, ws_dict)
+        """
+        log_layer("L0", "ContextBuilder 启动")
+        if progress_cb:
+            await progress_cb("context_builder", "正在构建场景上下文...")
+        ws_dict = world_state.to_dict()
+        # ★ 为无地点角色分配临时地点（LLM light），增加角色多样性
+        await self._assign_temp_locations(ws_dict)
+        ctx = ContextBuilder.build(player_action, ws_dict, beat_id=beat_id)
 
-        # ── Trace ──
-        from server.manana.utils import save_traces
-        save_traces(beat_id)
-        self._last_narrative = narrative_text
-        self._last_ending_hook = str(composer_raw.get("ending_hook", "") or "")
-        self._last_action_hints = list(composer_raw.get("action_hints", []) or [])
+        # ★ 灵魂附生模式：注入 soul 数据到上下文（唯一模式）
+        ctx["game_mode"] = "soul_possession"
+        if hasattr(world_state, 'soul_possession') and world_state.soul_possession is not None:
+            from .soul.arbiter import SoulDecisionArbiter
+            from .soul.inner_voice import InnerVoiceGenerator
 
-        # ── 写入本拍记忆（记忆系统启用时） ──
-        if self._config.is_feature_enabled("memory_system") and not isinstance(world_state, dict):
-            await self._write_beat_memories(
-                world_state, plan, character_outputs, narrative_text,
-                audit_result, cc_verdict if self._config.is_feature_enabled("continuity_check") else "",
-                rr_results if self._config.is_feature_enabled("role_reflection") else [],
+            soul_state = world_state.soul_possession
+            player_override = soul_choice
+
+            decision = SoulDecisionArbiter(soul_state).decide(
+                scene_context=ctx,
+                decision_mode="auto",
+                player_override=player_override,
             )
+            inner_voice = InnerVoiceGenerator(soul_state).generate(ctx, decision)
 
-        result_data = {
-            "narrative_text": narrative_text,
-            "action_hints": composer_raw.get("action_hints", []) or [],
-            "ending_hook": composer_raw.get("ending_hook", "") or "",
-            "music_mood": composer_raw.get("music_mood", "") or "",
-            "choices": composer_raw.get("choices", []) or [],
-            "state_patch": state_patch,
-            "audit": audit_result,
-            "micro_oracle": {
-                "system_health": mo_feedback.get("system_health", ""),
-                "suggestions": mo_feedback.get("suggestions", []),
-                "one_line_feedback": mo_feedback.get("one_line_feedback", ""),
-            } if mo_feedback else {},
-        }
+            ctx["soul"] = {
+                "decision": decision,
+                "inner_voice": inner_voice,
+            }
 
-        # ── Reward computation (阶段一) ──
-        if self._reward_tracker:
-            reward_record = self._reward_tracker.compute_and_log(result_data, beat_id, self._beat_count)
-            result_data["reward"] = reward_record.get("reward", 0.0)
-            result_data["reward_components"] = reward_record.get("components", {})
-        else:
-            result_data["reward"] = 0.0
+            # ★ 确保附身主角始终在场（Directer 必须能看到被附身角色）
+            protagonist_id = str((soul_state.canon_soul or {}).get("id", ""))
+            if protagonist_id:
+                existing_ids = {c.get("char_id", "") for c in ctx.get("characters", [])}
+                if protagonist_id not in existing_ids:
+                    # 从 ws_dict 中找到该角色并注入
+                    for char_id, cs in (ws_dict.get("characters_state", {}) or {}).items():
+                        if char_id == protagonist_id:
+                            canon_chars: list = (ws_dict.get("canon", {}) or {}).get("characters", []) or []
+                            canon_lookup = {}
+                            for c in canon_chars:
+                                c = c if isinstance(c, dict) else {}
+                                cid = str(c.get("id", ""))
+                                if cid:
+                                    canon_lookup[cid] = c
+                            prot_entry = ContextBuilder._build_single_character(
+                                char_id, cs, canon_lookup, ws_dict,
+                                str(ws_dict.get("player_location", "")),
+                            )
+                            if prot_entry:
+                                ctx.setdefault("characters", []).insert(0, prot_entry)
+                            break
 
-        # ── Prompt optimization trigger (阶段三) ──
-        if self._prompt_optimizer:
-            self._prompt_optimizer.maybe_run(self._beat_count)
+        # ── 注入记忆到场景上下文（记忆系统启用时） ──
+        if self._config.is_feature_enabled("memory_system"):
+            ctx = await self._inject_memory_to_ctx(ctx, ws_dict, world_state)
+            # 注入 LLM 工具定义到场景上下文（供 Director 使用）
+            ctx["llm_tools_prompt"] = self._get_llm_tools_prompt()
 
-        _log.info("=== Beat %s COMPLETE ===", beat_id)
+        # ── Conflict seed injection（T02: 注入 Canon 冲突种子） ──
+        conflict_pool = getattr(world_state, "conflict_pool", None)
+        if conflict_pool is not None:
+                seeds = conflict_pool.get_random_combination(2)
+                if seeds:
+                    ctx["available_conflicts"] = seeds
+                    _log.debug("注入了 %d 个冲突种子到场景上下文", len(seeds))
 
-        if self._pending_reconnect:
-            await self._do_reconnect()
+        # ── T04: 注入模式轮换上下文 ──
+        ctx["narrative_mode"] = self._current_narrative_mode
+        ctx["mode_duration"] = self._mode_duration
+        suggested = self._get_suggested_next_modes(self._current_narrative_mode)
+        if suggested:
+            ctx["suggested_next_modes"] = suggested
+        log_layer("L0", f"ContextBuilder 完成 ({len(ctx.get('characters', []))} 角色, "
+                  f"{len(ctx.get('active_threads', []))} 线索)")
 
-        return result_data
+        # ── v4: Context augmentation (semantic_selection + vector_memory) ──
+        if self._config.is_feature_enabled("semantic_selection") or \
+           self._config.get_vector_memory_config().get("enable_vector_memory", False):
+            ctx = await self._augment_context(ctx)
+
+        # ── 注入上拍结尾预告到场景上下文 ──
+        if self._last_ending_hook:
+            ctx["prev_ending_hook"] = self._last_ending_hook
+            ctx["prev_action_hints"] = list(self._last_action_hints)
+
+        return ctx, ws_dict
+
+    async def _assign_temp_locations(self, ws_dict: dict) -> None:
+        """为无地点角色用 LLM (light) 分配临时地点，写入 ws_dict。
+
+        仅修改 ws_dict["characters_state"] 中 location 为空/未知的角色。
+        临时值不持久化，仅影响本拍的角色入选。
+        """
+        cs = ws_dict.get("characters_state", {}) or {}
+        unplaced = {}
+        for cid, state in cs.items():
+            state = state if isinstance(state, dict) else {}
+            loc = str(state.get("location", "")).strip()
+            if loc in ("", "未知"):
+                unplaced[cid] = state
+
+        if not unplaced:
+            return
+
+        # 收集已知地点列表
+        all_locs = set()
+        for state in cs.values():
+            state = state if isinstance(state, dict) else {}
+            loc = str(state.get("location", "")).strip()
+            if loc and loc not in ("", "未知"):
+                all_locs.add(loc)
+        canon_locs: list = (ws_dict.get("canon", {}) or {}).get("locations", []) or []
+        for l in canon_locs:
+            if isinstance(l, dict):
+                name = str(l.get("name", "")).strip()
+                if name:
+                    all_locs.add(name)
+        if not all_locs:
+            return
+
+        # 用 light LLM 分配（简单 prompt）
+        provider = self._create_independent_provider("light")
+        if not provider:
+            return
+        try:
+            char_list = "\n".join(
+                f"- {cid}: 角色名={state.get('name', cid)}, 角色定位={state.get('role', '未知')}"
+                for cid, state in unplaced.items()
+            )
+            loc_list = ", ".join(sorted(all_locs)[:10])
+            prompt = (
+                f"以下角色尚未分配地点，请根据角色信息合理分配到已知地点中。\n\n"
+                f"可选地点: {loc_list}\n\n"
+                f"{char_list}\n\n"
+                f"输出一个 JSON 对象，key 为角色ID，value 为地点名。只输出 JSON，不要其他内容。"
+            )
+            import json
+            resp = await provider.chat(
+                "你是角色调度助手，只输出 JSON。",
+                prompt,
+                {"json_mode": True, "temperature": 0.3},
+            )
+            raw = (resp.get("content", "") or "").strip()
+            # 尝试提取 JSON
+            if "{" in raw:
+                raw = raw[raw.find("{"):raw.rfind("}") + 1]
+            assignments = json.loads(raw) if raw else {}
+            for cid, loc in (assignments or {}).items():
+                loc = str(loc).strip()
+                if cid in unplaced and loc in all_locs:
+                    cs[cid]["location"] = loc
+        except Exception:
+            pass  # 失败不影响管线
+        finally:
+            await provider.cleanup()
 
     # ------------------------------------------------------------------
     # L2R1: Motivation parallel dispatch
     # ------------------------------------------------------------------
 
-    async def _run_motivations_parallel(self, ctx: dict, plan: dict) -> list[dict]:
+    async def _run_motivations_parallel(
+        self, ctx: dict, plan: dict,
+        progress_cb: Optional[Callable[[str, str], Any]] = None,
+    ) -> list[dict]:
         char_ids: list = plan.get("featured_characters", []) or []
         if not char_ids:
             return []
+        log_layer("L2R1", f"MotivationEngine 启动 ({len(char_ids)} 角色)")
+        if progress_cb:
+            await progress_cb("motivation", "演员正在酝酿动机...")
 
         async def run_one(cid: str) -> dict:
             char_data = self._find_character(ctx, cid)
@@ -673,8 +833,11 @@ class MananaPipeline:
             finally:
                 await provider.cleanup()
 
+        log_layer("L2R1", "MotivationEngine 并行启动...")
         tasks = [run_one(cid) for cid in char_ids]
-        return await asyncio.gather(*tasks)
+        results = await asyncio.gather(*tasks)
+        log_layer("L2R1", f"MotivationEngine 完成 ({len(results)} 结果)")
+        return results
 
     # ------------------------------------------------------------------
     # L2R2: Dialogue + Action parallel dispatch
@@ -682,10 +845,14 @@ class MananaPipeline:
 
     async def _run_dialogue_actions_parallel(
         self, ctx: dict, plan: dict, motivations: list[dict],
+        progress_cb: Optional[Callable[[str, str], Any]] = None,
     ) -> list[dict]:
         da_char_ids: list = plan.get("featured_characters", []) or []
         if not da_char_ids:
             return []
+        log_layer("L2R2", "DialogueWeaver/ActionDirector 启动")
+        if progress_cb:
+            await progress_cb("dialogue", "演员正在对戏...")
 
         interaction_map = self._build_interaction_map(plan)
         name_map = self._build_name_map(ctx)
@@ -845,6 +1012,7 @@ class MananaPipeline:
                 "stance_change_raw": d.get("stance_change", {}) or {},
             })
 
+        log_layer("L2R2", f"DialogueWeaver/ActionDirector 完成 ({len(da_results)} 角色输出)")
         return da_results
 
     # ------------------------------------------------------------------
@@ -1075,22 +1243,65 @@ class MananaPipeline:
 
         return ctx
 
+
     # ------------------------------------------------------------------
-    # v4: Best-of-3 Director
+    # L1: Director dispatch
     # ------------------------------------------------------------------
 
-    async def _run_director_best_of_3(self, ctx: dict) -> dict:
-        bo3_config = self._config.get_best_of_3_config()
-        sample_count = bo3_config.get("sample_count", 3)
-        min_total = bo3_config.get("scorer_min_total", 8)
+    async def _run_l1_director(
+        self,
+        ctx: dict,
+        progress_cb: Optional[Callable[[str, str], Any]] = None,
+    ) -> dict:
+        """L1: 根据功能开关选择 Director 模式。
 
-        # Temperature sequence
-        if sample_count == 1:
-            temps = [0.6]
-        elif sample_count == 2:
-            temps = [0.4, 0.7]
-        else:
-            temps = [0.4, 0.6, 0.8]
+        Returns:
+            有效 plan dict。
+        Raises:
+            PipelineError: 所有 Director 模式都失败时。
+        """
+        if self._config.is_feature_enabled("multi_view") and self._is_director_best_of_n_enabled():
+            log_layer("L1", "SceneDirector 启动 (multi_view + best_of_n)")
+            if progress_cb:
+                await progress_cb("scene_director", "导演正在编排剧情...")
+            plan = await self._run_director_multi_view(ctx)
+            if not plan:
+                raise PipelineError("Director (multi_view) failed: empty plan")
+            return plan
+
+        if self._is_director_best_of_n_enabled():
+            log_layer("L1", "SceneDirector 启动 (best_of_n)")
+            if progress_cb:
+                await progress_cb("scene_director", "导演正在编排剧情...")
+            result = await self._run_director_best_of_n(ctx)
+            plan = result.get("raw", {}) or {}
+            if not plan:
+                raise PipelineError(f"Director (best_of_n) failed: {result.get('error', 'empty plan')}")
+            return plan
+
+        log_layer("L1", "SceneDirector 启动")
+        if progress_cb:
+            await progress_cb("scene_director", "导演正在编排剧情...")
+        director = SceneDirector()
+        director.configure(self._get_provider_for_tier("strong"))
+        result = await director.run({"scene_context": ctx})
+        if not result.get("ok", False):
+            raise PipelineError(f"Director failed: {result.get('error', 'unknown')}")
+        return result.get("raw", {}) or {}
+
+    # ------------------------------------------------------------------
+    # v4: Director Best-of-N
+    # ------------------------------------------------------------------
+
+    def _is_director_best_of_n_enabled(self) -> bool:
+        """Check if director Best-of-N is enabled."""
+        dbon = self._config._cfg_dict.get("director_best_of_n", {}) or {}
+        return dbon.get("enabled", "true") == "true"
+
+    async def _run_director_best_of_n(self, ctx: dict) -> dict:
+        bon_config = self._config.get_director_best_of_n_config()
+        sample_count = bon_config.get("sample_count", 3)
+        temps = bon_config.get("temperatures", [0.4, 0.6, 0.8])
 
         plans: list[dict] = []
         for temp in temps:
@@ -1104,7 +1315,7 @@ class MananaPipeline:
                     plans.append(raw)
 
         if not plans:
-            log_error("SceneDirector", "Best-of-3: all directors failed")
+            log_error("SceneDirector", "Best-of-N: all directors failed")
             return {"error": "All directors failed", "raw": {}}
 
         if len(plans) == 1:
@@ -1123,10 +1334,7 @@ class MananaPipeline:
                 best_total = total
                 best_plan = plan
 
-        if best_total < min_total and len(plans) > 1:
-            log_warning("SceneDirector", f"Best-of-3: all plans below min_total ({min_total}), using best available")
-
-        log_layer("L1", f"Best-of-3 选中: total={best_total} (from {len(plans)} candidates)")
+        log_layer("L1", f"Best-of-N 选中: total={best_total} (from {len(plans)} candidates)")
         return {"ok": True, "raw": best_plan}
 
     # ------------------------------------------------------------------
@@ -1135,17 +1343,17 @@ class MananaPipeline:
 
     async def _run_director_multi_view(self, ctx: dict) -> dict:
         # ── Plot-driven ──
-        log_layer("L1", "Multi-View: 启动 plot-driven Best-of-3")
+        log_layer("L1", "Multi-View: 启动 plot-driven Best-of-N")
         plot_ctx = deepcopy(ctx)
         plot_ctx["_director_mode"] = "plot_driven"
-        plot_result = await self._run_director_best_of_3(plot_ctx)
+        plot_result = await self._run_director_best_of_n(plot_ctx)
         plot_plan: dict = plot_result.get("raw", {}) or {}
 
         # ── Character-driven ──
-        log_layer("L1", "Multi-View: 启动 character-driven Best-of-3")
+        log_layer("L1", "Multi-View: 启动 character-driven Best-of-N")
         char_ctx = deepcopy(ctx)
         char_ctx["_director_mode"] = "character_driven"
-        char_result = await self._run_director_best_of_3(char_ctx)
+        char_result = await self._run_director_best_of_n(char_ctx)
         char_plan: dict = char_result.get("raw", {}) or {}
 
         # ── Synthesizer ──
@@ -1534,6 +1742,54 @@ class MananaPipeline:
         return self._config._get_str(section, key, str(default))
 
     # ------------------------------------------------------------------
+    # L1b: ContinuityChecker dispatch (with retry loop)
+    # ------------------------------------------------------------------
+
+    async def _run_l1b_continuity_check(
+        self,
+        plan: dict,
+        ctx: dict,
+        player_action: str,
+        ws_dict: dict,
+        progress_cb: Optional[Callable[[str, str], Any]] = None,
+    ) -> tuple[str, dict]:
+        """L1b: 运行 ContinuityChecker + 打回重做循环。
+
+        Returns:
+            (cc_verdict, plan) — plan 可能在重做后被更新。
+        """
+        cc_verdict = "APPROVED"
+        if not self._config.is_feature_enabled("continuity_check"):
+            return cc_verdict, plan
+
+        log_layer("L1b", "ContinuityChecker 启动")
+        if progress_cb:
+            await progress_cb("continuity_checker", "审计叙事连贯性...")
+        cc_result = await self._run_continuity_check(plan, ctx, player_action, ws_dict)
+        cc_verdict = str(cc_result.get("verdict", "APPROVED"))
+
+        cc_retry = 0
+        while cc_verdict == "REJECTED" and cc_retry < self._config.get_continuity_max_rewrite():
+            cc_retry += 1
+            _log.info(f"L1b 打回重做 (第{cc_retry}次)...")
+            director = SceneDirector()
+            director.configure(self._get_provider_for_tier("strong"))
+            director_input = {"scene_context": ctx,
+                              "continuity_constraints": cc_result.get("conflict_details", [])}
+            beat_plan_result = await director.run(director_input)
+            if beat_plan_result.get("ok", False):
+                plan = beat_plan_result.get("raw", {}) or {}
+            cc_result = await self._run_continuity_check(plan, ctx, player_action, ws_dict)
+            cc_verdict = str(cc_result.get("verdict", "APPROVED"))
+
+        if cc_verdict == "REJECTED":
+            log_warning("ContinuityChecker", "L1b 超过重做上限，强制通过")
+            cc_verdict = "APPROVED"
+
+        log_layer("L1b", f"ContinuityChecker 完成 — {cc_verdict}")
+        return cc_verdict, plan
+
+    # ------------------------------------------------------------------
     # L1b: ContinuityChecker
     # ------------------------------------------------------------------
 
@@ -1572,6 +1828,101 @@ class MananaPipeline:
         }
 
         return await cc.run(cc_input)
+
+    # ------------------------------------------------------------------
+    # L2R3: RoleReflector dispatch (with transition + rewrite loops)
+    # ------------------------------------------------------------------
+
+    async def _run_l2r3_role_reflection(
+        self,
+        character_outputs: list,
+        ws_dict: dict,
+        plan: dict,
+        progress_cb: Optional[Callable[[str, str], Any]] = None,
+        ctx: dict = None,
+        motivation_results: list = None,
+    ) -> list:
+        """L2R3: 运行 RoleReflector + 处理 NEED_TRANSITION + NEED_REWRITE 循环。
+
+        Args:
+            character_outputs: list[dict]，会被就地修改（插入过渡对话/动作）。
+
+        Returns:
+            rr_results: list[dict] 反思结果
+        """
+        if not self._config.is_feature_enabled("role_reflection"):
+            return []
+
+        log_layer("L2R3", "RoleReflector 启动")
+        if progress_cb:
+            await progress_cb("role_reflector", "演员正在反思表演...")
+        rr_result = await self._run_role_reflection(character_outputs, ws_dict, plan)
+        rr_results: list = rr_result.get("results", []) or []
+
+        # 处理 NEED_TRANSITION: 附加过渡
+        for rr in rr_results:
+            if rr.get("verdict") == "NEED_TRANSITION":
+                char_id = rr.get("char_id", "")
+                transition_dialogue = rr.get("transition_dialogue", "")
+                transition_action = rr.get("transition_action", "")
+                for co in character_outputs:
+                    if co.get("character_id", co.get("char_id", "")) == char_id:
+                        if transition_dialogue:
+                            if not isinstance(co.get("dialogue"), list):
+                                co["dialogue"] = []
+                            co["dialogue"].append({
+                                "text": transition_dialogue,
+                                "tone": "过渡",
+                                "target": "none",
+                                "subtext": "过渡衔接",
+                            })
+                        if transition_action:
+                            if not isinstance(co.get("actions"), list):
+                                co["actions"] = []
+                            co["actions"].append({
+                                "type": "transition",
+                                "description": transition_action,
+                                "target": "none",
+                                "intensity": "subtle",
+                            })
+                        break
+
+        # 处理 NEED_REWRITE: 打回 L2R2 重做
+        rewrite_chars = [r.get("char_id", "") for r in rr_results
+                         if r.get("verdict") == "NEED_REWRITE"]
+        rewrite_count = 0
+        while rewrite_chars and rewrite_count < 2:
+            rewrite_count += 1
+            _log.info(f"L2R3 打回重做第{rewrite_count}次: {rewrite_chars}")
+            # 重新跑受影响的角色的 L2R2
+            new_outputs = []
+            for co in character_outputs:
+                cid = co.get("character_id", co.get("char_id", ""))
+                if cid in rewrite_chars:
+                    constraint = next(
+                        (r.get("rewrite_constraint", "") for r in rr_results
+                         if r.get("char_id") == cid), "")
+                    new_co = await self._rerun_character_performance(
+                        cid, ctx, plan, motivation_results, constraint)
+                    if new_co:
+                        new_outputs.append(new_co)
+                    else:
+                        new_outputs.append(co)
+                else:
+                    new_outputs.append(co)
+            character_outputs[:] = new_outputs  # 就地替换
+
+            # 重新跑 RoleReflector
+            rr_result = await self._run_role_reflection(character_outputs, ws_dict, plan)
+            rr_results = rr_result.get("results", []) or []
+            rewrite_chars = [r.get("char_id", "") for r in rr_results
+                             if r.get("verdict") == "NEED_REWRITE"]
+
+        if rewrite_chars:
+            log_warning("RoleReflector", f"L2R3 超过重做上限，遗留: {rewrite_chars}")
+
+        log_layer("L2R3", f"RoleReflector 完成 ({len(rr_results)} 角色)")
+        return rr_results
 
     # ------------------------------------------------------------------
     # L2R3: RoleReflector
@@ -1699,9 +2050,6 @@ class MananaPipeline:
         character_mgr_result: dict, location_mgr_result: dict,
     ) -> None:
         """处理涌现实体: 合并/累加/LLM判定/采纳。"""
-        if isinstance(world_state, dict):
-            return  # 兼容 dict 模式
-
         if not hasattr(world_state, "add_pending_emergence"):
             return
 
@@ -1761,9 +2109,6 @@ class MananaPipeline:
         self, ctx: dict, ws_dict: dict, world_state: "WorldState",
     ) -> dict:
         """从 MemoryManager 检索记忆并注入到场景上下文。"""
-        if isinstance(world_state, dict):
-            return ctx
-
         current_beat = self._beat_count
 
         # 导演记忆
@@ -1793,15 +2138,25 @@ class MananaPipeline:
 
         return ctx
 
+    def _get_llm_tools_prompt(self) -> str:
+        """返回 LLM 可用的记忆/scratchpad 工具定义"""
+        return """
+## Available Tools
+
+You may invoke these tools within your reasoning to access character memories:
+
+- `read_memory(agent_id, query)` — retrieve relevant memories for an agent (use "director" for your own decisions, "world" for global events, or a character ID like "char_003" for that character's memories). query is a short natural language description of what you're looking for.
+- `write_memory(agent_id, content, importance)` — record a new memory. agent_id: which agent this belongs to. content: the memory text. importance: 1-10 rating of how important this is.
+
+When you finish your plan, call write_memory("director", "<your decision summary>", 5) to record your decision for future beats.
+"""
+
     async def _write_beat_memories(
         self, world_state: "WorldState", plan: dict,
         character_outputs: list, narrative_text: str,
         audit_result: dict, cc_verdict: str, rr_results: list,
     ) -> None:
         """每拍结束后，将本拍的决策/事件/状态变化写入记忆流。"""
-        if isinstance(world_state, dict):
-            return
-
         beat = self._beat_count
         mm = world_state.memory
 
@@ -1896,7 +2251,7 @@ class MananaPipeline:
         # 7. 检查是否需要 Reflection（导演反思）
         if mm.should_reflect("director"):
             from server.manana.agents import MicroOracleAgent
-            from server.manana.memory import MemoryEntry
+            from server.manana.contextual_memory import MemoryEntry
             oracle = MicroOracleAgent()
             oracle.configure(self._get_provider_for_tier("light"))
             recent_mem = mm.director_memory[-10:] if mm.director_memory else []

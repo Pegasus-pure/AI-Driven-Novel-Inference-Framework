@@ -119,6 +119,22 @@ export class WSClient {
   }
 
   /**
+   * 发送灵魂附生选择（本我/贴合）
+   * @param {string} actionType - "authentic" | "conforming"
+   * @param {string} beatId - 当前 beat ID
+   */
+  sendSoulChoice(actionType, beatId) {
+    return this.send('player_action', {
+      text: '',
+      choice_id: '',
+      soul_choice: {
+        action_type: actionType,
+        beat_id: beatId,
+      },
+    });
+  }
+
+  /**
    * 主动断开（不触发重连）
    */
   disconnect() {
@@ -164,11 +180,20 @@ export class WSClient {
       this.send('request_canon_list', {});
     } else if (type === 'state_sync') {
       this._applyStateSync(payload);
+      // 应用 state_sync 后同步 FSM 状态：如果游戏已开始（beat_count > 0）
+      // 且 FSM 仍在 novel_select 阶段，自动切换到 narrative
+      if (payload.beat_count > 0 && App.fsm.phase === 'novel_select') {
+        App.fsm.transition('narrative', 'awaiting_start');
+      }
     } else if (type === 'canon_list') {
       // canon_list → 更新 App.state（事件转发交由 emit 统一处理）
       App.state.hasExistingCanon = !!payload.has_existing_canon;
       App.state.availableTxtFiles = payload.txt_files || [];
       App.state.availableCanons = payload.canons || [];
+      // ★ 合并 running canons（手动模式创建的小说）到可选列表
+      if (payload.running_canons) {
+        App.state.availableRunningCanons = payload.running_canons;
+      }
     } else if (type === 'deviation_update') {
       App.state.deviation = payload.value || 0;
     } else if (type === 'error') {
@@ -191,10 +216,9 @@ export class WSClient {
       const beatCountEl = document.getElementById('beatCount');
       if (beatCountEl) beatCountEl.textContent = payload.beat_count;
 
-      // ── 新增：根据 beat_count 更新 isMidGame ──
+      // ── isMidGame 由 FSM + beatCount 自动推导，无需手动设置 ──
       const newIsMidGame = payload.beat_count > 0;
       if (App.state.isMidGame !== newIsMidGame) {
-        App.state.isMidGame = newIsMidGame;
         App.emit('mid_game_state_changed', { isMidGame: App.state.isMidGame });
       }
     }
@@ -222,8 +246,14 @@ export class WSClient {
     if (payload.novel_title !== undefined && payload.novel_title !== "") {
       const novelTitleBtn = document.getElementById('novelTitleBtn');
       if (novelTitleBtn) {
-        novelTitleBtn.textContent = payload.novel_title;
+        novelTitleBtn.textContent = '《' + payload.novel_title + '》';
       }
+    }
+    if (payload.protagonist_id) {
+      App.state._selectedProtagonistId = payload.protagonist_id;
+    }
+    if (payload.narrative_threads) {
+      App.state.narrativeThreads = payload.narrative_threads;
     }
 
     // ── 根据 beat_count 显示/隐藏欢迎界面 ──
@@ -245,12 +275,7 @@ export class WSClient {
             App.pipelineStatus.restoreGenerating(payload.current_agent);
             showAbortButton();
           } else {
-            // 如果后端不在生成，显示开始按钮并隐藏中止按钮
-            const startBtn = document.getElementById('startGameBtn');
-            if (startBtn && App.state.canonReady) {
-              startBtn.style.display = 'flex';
-              startBtn.disabled = false;
-            }
+            // 不在生成中 → 隐藏中止按钮
             hideAbortButton();
           }
         } else {

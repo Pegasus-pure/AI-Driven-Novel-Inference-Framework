@@ -69,6 +69,8 @@ class ActionDirector(BaseAgent):
 - 只输出 JSON，不要对话，不要心理描写
 - actions 数组 1-4 个元素即可
 - 动作要符合角色的当前情绪和场景基调
+- 如果角色的认知冲突度（dissonance）> 0.6，动作可包含疏离感
+  （后退半步、双臂交叉、保持距离、握紧武器等）
 """
 
     def build_user_prompt(self, input_data: dict) -> str:
@@ -118,31 +120,20 @@ class ActionDirector(BaseAgent):
 
         return "\n".join(lines)
 
-    async def run(self, input_data: dict) -> dict:
-        sys = str(input_data.get("system_prompt", "") or "") or self.build_system_prompt()
-        usr = self.build_user_prompt(input_data)
+    def _get_llm_options(self, input_data: dict) -> dict:
+        return {"json_mode": True, "temperature": 0.6, "max_tokens": 512}
 
+    def _pre_llm_hook(self, input_data: dict) -> None:
         char_name = str((input_data.get("character", {}) or {}).get("name", "?"))
         self._log_info(f"→ 编排 {char_name} 的动作...")
 
-        result = await self._call_llm(sys, usr, {"json_mode": True, "temperature": 0.6, "max_tokens": 512})
-
-        if not result.get("ok", False):
-            return {"ok": False, "content": "", "raw": {}, "error": result.get("error", "LLM call failed")}
-
-        parsed = self._parse_json_response(result)
-        if parsed.get("error", ""):
-            return {"ok": False, "content": result.get("content", ""), "raw": {},
-                    "error": "JSON parse failed: " + str(parsed.get("error", ""))}
-
-        data: dict = parsed.get("data", {}) or {}
+    def _post_process(self, data: dict, input_data: dict, raw_content: str) -> dict:
         if not data.get("character_id"):
             data["character_id"] = str((input_data.get("character", {}) or {}).get("char_id", ""))
-
         action_count = len(data.get("actions", []) or [])
+        char_name = str((input_data.get("character", {}) or {}).get("name", "?"))
         self._log_info(f"→ {char_name}: {action_count} 个动作")
-
-        return {"ok": True, "content": result.get("content", ""), "raw": data}
+        return data
 
 
 # ============================================================

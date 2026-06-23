@@ -131,6 +131,25 @@ class MotivationEngine(BaseAgent):
         if rel:
             lines.append(f"对玩家的态度: {rel}")
 
+        # ★ 认知冲突数据注入（灵魂附生模式）
+        dissonance = character.get("dissonance_score", None)
+        if dissonance is not None:
+            phase = character.get("phase", "normal")
+            expected = character.get("expected_behavior", "")
+            phase_desc = {
+                "normal": "一切正常",
+                "subtle": "隐隐觉得哪里不对",
+                "questioning": "开始怀疑主角变了",
+                "confrontational": "确信主角不对劲",
+                "adapted": "已经适应了新的主角",
+            }
+            lines.append("")
+            lines.append("## 认知冲突信息")
+            lines.append(f"当前认知冲突度: {dissonance:.2f}（{phase_desc.get(phase, '未知')}）")
+            if expected:
+                lines.append(f"记忆中主角应该是: 「{expected}」")
+            lines.append("请据此调整对主角的态度。如果冲突度高，在 stane_toward_protagonist 中设置 confusion_level 字段。")
+
         anti_rules: list = character.get("anti_rules", []) or []
         if anti_rules:
             lines.append("")
@@ -143,39 +162,7 @@ class MotivationEngine(BaseAgent):
 
         return "\n".join(lines)
 
-    async def run(self, input_data: dict) -> dict:
-        sys = str(input_data.get("system_prompt", "") or "") or self.build_system_prompt()
-        usr = self.build_user_prompt(input_data)
 
-        char_name = str((input_data.get("character", {}) or {}).get("name", "?"))
-        self._log_info(f"→ 分析 {char_name} ...")
-
-        result = await self._call_llm(sys, usr, {"json_mode": True, "temperature": 0.7})
-
-        if not result.get("ok", False):
-            return {"ok": False, "content": "", "raw": {}, "error": result.get("error", "LLM call failed")}
-
-        parsed = self._parse_json_response(result)
-        if parsed.get("error", ""):
-            return {"ok": False, "content": result.get("content", ""), "raw": {},
-                    "error": "JSON parse failed: " + str(parsed.get("error", ""))}
-
-        data: dict = parsed.get("data", {}) or {}
-        if not data.get("character_id"):
-            data["character_id"] = str((input_data.get("character", {}) or {}).get("char_id", ""))
-
-        validation = MananaSchema.validate_motivation_output(data)
-        if not validation.get("valid", False):
-            self._log_warn(f"输出验证失败: {validation.get('errors', [])}")
-
-        mood = str((data.get("internal_state", {}) or {}).get("mood", "?"))
-        self._log_info(f"→ {char_name}: 情绪={mood}")
-
-        return {"ok": True, "content": result.get("content", ""), "raw": data}
-
-
-# ============================================================
-# L2R2: DialogueWeaver
-# ============================================================
-
+    def _get_llm_options(self, input_data: dict) -> dict:
+        return {"json_mode": True, "temperature": 0.7}
 

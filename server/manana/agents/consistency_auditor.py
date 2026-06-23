@@ -52,6 +52,10 @@ class ConsistencyAuditor(BaseAgent):
 ### 4. 连续性断裂 (continuity_break)
 与上一段叙事的衔接出现问题。
 
+### 5. POV 违规 (pov_violation) 【灵魂附生模式】
+叙事描述了主角不应该知道的信息（如其他角色的内心想法、
+主角不在场时发生的事）。仅在叙事模式为灵魂附生时启用。
+
 ## 判断标准
 
 - **critical**: 严重破坏叙事可信度，必须修复
@@ -81,7 +85,7 @@ class ConsistencyAuditor(BaseAgent):
   - fix_suggestion: 具体的修改方案
 
 如果发现问题，verdict 为 "FAIL" 或 "WARNING"，issues 数组填写具体问题。每个 issue 包含：
-- type: "character_drift" | "fact_contradiction" | "rule_violation" | "continuity_break"
+- type: "character_drift" | "fact_contradiction" | "rule_violation" | "continuity_break" | "pov_violation"
 - severity: "critical" | "major" | "minor"
 - description: 问题的中文描述
 - location_hint: 叙事文本中大致位置指引
@@ -147,65 +151,7 @@ class ConsistencyAuditor(BaseAgent):
 
         return "\n".join(lines)
 
-    async def run(self, input_data: dict) -> dict:
-        sys = str(input_data.get("system_prompt", "") or "") or self.build_system_prompt()
-        usr = self.build_user_prompt(input_data)
 
-        narrative_len = len(str(input_data.get("narrative_text", "") or ""))
-        self._log_info("→ 审计叙事一致性...")
-        log_layer("L3b", f"ConsistencyAuditor 启动 — 叙事长度 {narrative_len} 字符")
-
-        result = await self._call_llm(sys, usr, {"json_mode": True, "temperature": 0.3})
-
-        if not result.get("ok", False):
-            return {"ok": False, "content": "", "raw": {},
-                    "error": result.get("error", "LLM call failed")}
-
-        parsed = self._parse_json_response(result)
-        if parsed.get("error", ""):
-            return {"ok": False, "content": result.get("content", ""), "raw": {},
-                    "error": "JSON parse failed: " + str(parsed.get("error", ""))}
-
-        data: dict = parsed.get("data", {}) or {}
-
-        if "verdict" not in data:
-            data["verdict"] = "PASS"
-        if "issues" not in data:
-            data["issues"] = []
-        if "overall_quality" not in data:
-            data["overall_quality"] = {"character_consistency": 0.5, "plot_coherence": 0.5, "world_fidelity": 0.5}
-        if "refinement_hints" not in data:
-            data["refinement_hints"] = []
-
-        validation = MananaSchema.validate_auditor_output(data)
-        if not validation.get("valid", False):
-            self._log_warn(f"输出验证警告: {validation.get('errors', [])}")
-
-        verdict = str(data.get("verdict", "PASS"))
-        issues: list = data.get("issues", []) or []
-
-        if verdict in ("FAIL", "WARNING"):
-            self._log_warn(f"⚠ 审计 {verdict} — 发现 {len(issues)} 个问题:")
-            for issue in issues:
-                issue = issue if isinstance(issue, dict) else {}
-                sev = issue.get("severity", "major")
-                itype = issue.get("type", "unknown")
-                desc = issue.get("description", "(无描述)")
-                loc = issue.get("location_hint", "")
-                self._log_warn(f"  [{sev}] {itype}: {desc} (位置: {loc})")
-            log_layer("L3b", f"ConsistencyAuditor {verdict} — {len(issues)} issues, "
-                      f"{sum(1 for i in issues if isinstance(i, dict) and i.get('severity') == 'critical')} critical")
-        else:
-            self._log_info("→ 审计通过 ✓")
-            quality: dict = data.get("overall_quality", {}) or {}
-            log_layer("L3b", f"ConsistencyAuditor PASS — 角色一致: {quality.get('character_consistency', 0):.2f}, "
-                      f"情节连贯: {quality.get('plot_coherence', 0):.2f}, 世界保真: {quality.get('world_fidelity', 0):.2f}")
-
-        return {"ok": True, "content": result.get("content", ""), "raw": data}
-
-
-# ============================================================
-# L4b: ThreadManager
-# ============================================================
-
+    def _get_llm_options(self, input_data: dict) -> dict:
+        return {"json_mode": True, "temperature": 0.3}
 

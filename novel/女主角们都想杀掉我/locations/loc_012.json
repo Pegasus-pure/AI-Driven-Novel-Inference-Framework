@@ -1,0 +1,12 @@
+{
+  "id": "loc_012",
+  "name": "帝国监狱",
+  "type": "建筑",
+  "parent": "loc_003",
+  "description": "关押帝国罪犯和政敌的监狱。雅莲恩被错误囚禁于此。弗雷命令卡尼亚通过贿赂释放她。",
+  "atmosphere": "阴暗、绝望",
+  "key_events": [
+    "雅莲恩被关押与释放"
+  ],
+  "first_appearance": "第30章"
+}

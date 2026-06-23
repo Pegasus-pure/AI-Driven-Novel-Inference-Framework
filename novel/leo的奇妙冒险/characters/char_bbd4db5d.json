@@ -1,0 +1,22 @@
+{
+  "name": "leo",
+  "role": "主角",
+  "aliases": [
+    "哈哈，leo是逆天"
+  ],
+  "personality": {
+    "traits": [],
+    "speech_style": "",
+    "core_motivation": "",
+    "core_fear": "",
+    "moral_alignment": ""
+  },
+  "appearance": "",
+  "abilities": [],
+  "key_traits": [],
+  "starting_location": "loc_cb415bb5",
+  "id": "char_bbd4db5d",
+  "relationships": [],
+  "anti_rules": [],
+  "status": "alive"
+}
