@@ -10,7 +10,7 @@ https://github.com/Pegasus-pure/AI-Driven-Novel-Inference-Framework/blob/main(fr
 
 ---
 
-请查看各分支
+请查看各分支内容
 
 ---
 
